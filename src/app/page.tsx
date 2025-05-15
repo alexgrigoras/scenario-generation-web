@@ -1,8 +1,8 @@
 
 "use client";
 
-import React from 'react';
-import { useState } from 'react';
+import type React from 'react';
+import { useState, useEffect } from 'react';
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -244,7 +244,7 @@ const ScenarioSagePage: React.FC = () => {
               <CardHeader>
                 <CardTitle className="flex items-center"><FileText className="mr-2 h-6 w-6 text-primary" /> Scenario Analysis</CardTitle>
                  <CardDescription>Summary of the analyzed scenario.</CardDescription>
-              </Header>
+              </CardHeader>
               <CardContent className="space-y-2">
                 <div>
                   <h4 className="font-semibold">Overall Summary:</h4>
