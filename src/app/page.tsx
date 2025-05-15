@@ -3,16 +3,18 @@
 
 import React from 'react';
 import { useState } from 'react';
+
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useToast } from "@/hooks/use-toast";
 import { UploadCloud, Lightbulb, LineChart, FileText, Loader2, CalendarDays } from "lucide-react";
+
 import Logo from "@/components/logo";
 import TimeSeriesChart from "@/components/time-series-chart";
+import { useToast } from "@/hooks/use-toast";
 import { parseCsvForTimeSeries, type TimeSeriesDataPoint } from "@/lib/csv-parser";
 import { generateForecastAction, summarizeResultsAction } from "./actions";
 import type { ScenarioForecastOutput } from '@/ai/flows/generate-scenario-forecast';
@@ -112,8 +114,8 @@ const ScenarioSagePage: React.FC = () => {
       scenarios: [
         {
           scenarioName: scenarioName,
-          projectedRevenueChange: 0, 
-          potentialStockoutRisk: "N/A", 
+          projectedRevenueChange: 0, // Placeholder, as this isn't directly calculated by the forecast AI
+          potentialStockoutRisk: "N/A", // Placeholder
           details: forecastDetails,
         },
       ],
@@ -259,9 +261,10 @@ const ScenarioSagePage: React.FC = () => {
               </CardContent>
             </Card>
           )}
-          {(isSummarizing) && (
+          {(isGeneratingForecast || isSummarizing) && ( // Combined loading state for simplicity
             <div className="flex items-center justify-center p-4 text-muted-foreground">
-              <Loader2 className="mr-2 h-5 w-5 animate-spin" /> Analyzing scenario...
+              <Loader2 className="mr-2 h-5 w-5 animate-spin" /> 
+              {isGeneratingForecast ? "Generating forecast..." : "Analyzing scenario..."}
             </div>
           )}
         </div>
