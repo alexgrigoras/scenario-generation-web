@@ -1,3 +1,4 @@
+
 // src/ai/flows/generate-scenario-forecast.ts
 'use server';
 /**
@@ -15,7 +16,7 @@ import {z} from 'genkit';
 const ScenarioForecastInputSchema = z.object({
   historicalData: z
     .string()
-    .describe('Historical sales and pricing data in CSV format.'),
+    .describe("Historical sales and pricing data in CSV format. Expected columns: 'timestamp', 'item_id', 'store_id', 'demand', 'price'."),
   priceChangeScenario: z
     .string()
     .describe(
@@ -27,7 +28,7 @@ export type ScenarioForecastInput = z.infer<typeof ScenarioForecastInputSchema>;
 const ScenarioForecastOutputSchema = z.object({
   forecastedData: z
     .string()
-    .describe('The forecasted time series data in CSV format.'),
+    .describe("The forecasted time series data in CSV format. Expected columns: 'timestamp', 'price', 'demand'."),
   summary: z.string().describe('A summary of the forecasted scenario.'),
 });
 export type ScenarioForecastOutput = z.infer<typeof ScenarioForecastOutputSchema>;
@@ -45,16 +46,17 @@ const prompt = ai.definePrompt({
   prompt: `You are an expert business analyst specializing in forecasting sales based on pricing scenarios.
 
 You are provided with historical sales and pricing data, and a description of a price change scenario.
+The historical data CSV contains columns: 'timestamp', 'item_id', 'store_id', 'demand', and 'price'. You should use all relevant columns from the historical data (item_id, store_id, price, demand over timestamp) to inform your forecast.
 
-Your task is to generate a forecasted time series of demand, taking into account the impact of the price change.
+Your task is to generate a forecasted time series of demand, taking into account the impact of the price change described in the scenario.
 
-Historical Data:
+Historical Data (CSV format with columns: timestamp, item_id, store_id, demand, price):
 {{historicalData}}
 
 Price Change Scenario:
 {{priceChangeScenario}}
 
-Output the forecasted time series data in CSV format, including columns for date, price, and demand.  Also generate a short summary of the scenario.
+Output the forecasted time series data in CSV format, including columns for timestamp, price, and demand. The 'timestamp' column in your output should match the format of the input 'timestamp' column. Also generate a short summary of the scenario.
 `,
 });
 

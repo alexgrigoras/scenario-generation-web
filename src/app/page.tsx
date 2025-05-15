@@ -1,3 +1,4 @@
+
 "use client";
 
 import type React from 'react';
@@ -46,7 +47,7 @@ export default function ScenarioSagePage() {
         try {
           const parsedData = parseCsvForTimeSeries(csvContent, 'demand');
           if (parsedData.length === 0 && csvContent.trim() !== "") {
-            toast({ title: "Warning", description: "CSV parsed, but no valid data points found. Check headers: 'date', 'demand'.", variant: "destructive" });
+            toast({ title: "Warning", description: "CSV parsed, but no valid data points found. Check headers: 'timestamp', 'demand'.", variant: "destructive" });
           }
           setHistoricalDataPoints(parsedData);
         } catch (error) {
@@ -79,9 +80,10 @@ export default function ScenarioSagePage() {
     } else {
       setForecastOutput(result);
       try {
+        // Assuming forecast CSV also uses 'timestamp' for date and 'demand' for value
         const parsedForecast = parseCsvForTimeSeries(result.forecastedData, 'demand');
          if (parsedForecast.length === 0 && result.forecastedData.trim() !== "") {
-            toast({ title: "Warning", description: "Forecast CSV parsed, but no valid data points found. Check AI output format.", variant: "destructive" });
+            toast({ title: "Warning", description: "Forecast CSV parsed, but no valid data points found. Check AI output format. Expected columns: 'timestamp', 'demand'.", variant: "destructive" });
           }
         setForecastedDataPoints(parsedForecast);
         toast({ title: "Success", description: "Forecast generated successfully!" });
@@ -138,7 +140,7 @@ export default function ScenarioSagePage() {
           <Card className="shadow-lg">
             <CardHeader>
               <CardTitle className="flex items-center"><UploadCloud className="mr-2 h-6 w-6 text-primary" /> Upload Historical Data</CardTitle>
-              <CardDescription>Upload your historical sales and pricing data in CSV format. Ensure columns 'date' and 'demand' exist.</CardDescription>
+              <CardDescription>Upload your historical data in CSV format. Ensure columns 'timestamp', 'item_id', 'store_id', 'demand', and 'price' exist.</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
@@ -197,6 +199,7 @@ export default function ScenarioSagePage() {
                   <TabsTrigger value="forecasted" disabled={forecastedDataPoints.length === 0}>Forecasted Demand</TabsTrigger>
                 </TabsList>
                 <TabsContent value="initial">
+                  {/* The TimeSeriesChart expects 'date' in its data points, which our updated parser still provides */}
                   <TimeSeriesChart data={historicalDataPoints} title="Historical Demand Data" barColor="hsl(var(--chart-1))" />
                 </TabsContent>
                 <TabsContent value="forecasted">
