@@ -1,7 +1,8 @@
 
 "use client";
 
-import { useState } from 'react'; // Changed this line
+import React from 'react';
+import { useState } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -17,7 +18,7 @@ import { generateForecastAction, summarizeResultsAction } from "./actions";
 import type { ScenarioForecastOutput } from '@/ai/flows/generate-scenario-forecast';
 import type { SummarizeScenarioResultsInput, SummarizeScenarioResultsOutput } from '@/ai/flows/summarize-scenario-results';
 
-export default function ScenarioSagePage() {
+const ScenarioSagePage: React.FC = () => {
   const { toast } = useToast();
 
   const [historicalDataCsv, setHistoricalDataCsv] = useState<string | null>(null);
@@ -47,7 +48,7 @@ export default function ScenarioSagePage() {
         try {
           const parsedData = parseCsvForTimeSeries(csvContent, 'demand');
           if (parsedData.length === 0 && csvContent.trim() !== "") {
-            toast({ title: "Warning", description: "CSV parsed, but no valid data points found. Check headers: 'timestamp', 'demand', 'item_id', 'store_id', 'price'.", variant: "destructive" });
+            toast({ title: "Warning", description: "CSV parsed, but no valid data points found. Check headers: 'timestamp', 'item_id', 'store_id', 'demand', 'price'.", variant: "destructive" });
           }
           setHistoricalDataPoints(parsedData);
         } catch (error) {
@@ -111,8 +112,8 @@ export default function ScenarioSagePage() {
       scenarios: [
         {
           scenarioName: scenarioName,
-          projectedRevenueChange: 0,
-          potentialStockoutRisk: "N/A",
+          projectedRevenueChange: 0, 
+          potentialStockoutRisk: "N/A", 
           details: forecastDetails,
         },
       ],
@@ -270,6 +271,6 @@ export default function ScenarioSagePage() {
       </footer>
     </div>
   );
-}
+};
 
-    
+export default ScenarioSagePage;
