@@ -80,7 +80,6 @@ export default function ScenarioSagePage() {
     } else {
       setForecastOutput(result);
       try {
-        // Assuming forecast CSV also uses 'timestamp' for date and 'demand' for value
         const parsedForecast = parseCsvForTimeSeries(result.forecastedData, 'demand');
          if (parsedForecast.length === 0 && result.forecastedData.trim() !== "") {
             toast({ title: "Warning", description: "Forecast CSV parsed, but no valid data points found. Check AI output format. Expected columns: 'timestamp', 'demand'.", variant: "destructive" });
@@ -88,7 +87,6 @@ export default function ScenarioSagePage() {
         setForecastedDataPoints(parsedForecast);
         toast({ title: "Success", description: "Forecast generated successfully!" });
 
-        // Automatically try to summarize this single forecast
         handleSummarizeSingleScenario(result.summary || "No summary provided by AI.");
 
       } catch (error) {
@@ -99,15 +97,14 @@ export default function ScenarioSagePage() {
     setIsGeneratingForecast(false);
   };
   
-  // Helper to use summarizeScenarioResults with the current forecast
   const handleSummarizeSingleScenario = async (forecastDetails: string) => {
     setIsSummarizing(true);
     const singleScenarioForSummary: SummarizeScenarioResultsInput = {
       scenarios: [
         {
           scenarioName: scenarioName,
-          projectedRevenueChange: 0, // Placeholder - AI flow doesn't provide this
-          potentialStockoutRisk: "N/A", // Placeholder
+          projectedRevenueChange: 0, 
+          potentialStockoutRisk: "N/A", 
           details: forecastDetails,
         },
       ],
@@ -199,11 +196,10 @@ export default function ScenarioSagePage() {
                   <TabsTrigger value="forecasted" disabled={forecastedDataPoints.length === 0}>Forecasted Demand</TabsTrigger>
                 </TabsList>
                 <TabsContent value="initial">
-                  {/* The TimeSeriesChart expects 'date' in its data points, which our updated parser still provides */}
-                  <TimeSeriesChart data={historicalDataPoints} title="Historical Demand Data" barColor="hsl(var(--chart-1))" />
+                  <TimeSeriesChart data={historicalDataPoints} title="Historical Demand Data" lineColor="hsl(var(--chart-1))" />
                 </TabsContent>
                 <TabsContent value="forecasted">
-                  <TimeSeriesChart data={forecastedDataPoints} title="Forecasted Demand Data" barColor="hsl(var(--chart-2))" />
+                  <TimeSeriesChart data={forecastedDataPoints} title="Forecasted Demand Data" lineColor="hsl(var(--chart-2))" />
                 </TabsContent>
               </Tabs>
             </CardContent>
@@ -255,3 +251,4 @@ export default function ScenarioSagePage() {
     </div>
   );
 }
+

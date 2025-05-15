@@ -1,7 +1,8 @@
+
 "use client";
 
 import type React from 'react';
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis, ResponsiveContainer, Legend, Tooltip as RechartsTooltip } from 'recharts';
+import { Line, LineChart, CartesianGrid, XAxis, YAxis, ResponsiveContainer, Legend, Tooltip as RechartsTooltip } from 'recharts';
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '@/components/ui/chart';
 import type { TimeSeriesDataPoint } from '@/lib/csv-parser';
 
@@ -10,7 +11,7 @@ interface TimeSeriesChartProps {
   title?: string;
   dataKey?: string;
   className?: string;
-  barColor?: string; // e.g., "hsl(var(--chart-1))"
+  lineColor?: string; // e.g., "hsl(var(--chart-1))"
 }
 
 const TimeSeriesChart: React.FC<TimeSeriesChartProps> = ({
@@ -18,12 +19,12 @@ const TimeSeriesChart: React.FC<TimeSeriesChartProps> = ({
   title,
   dataKey = "value",
   className,
-  barColor = "hsl(var(--chart-1))"
+  lineColor = "hsl(var(--chart-1))" // Default line color
 }) => {
   const chartConfig = {
     [dataKey]: {
       label: title || dataKey.charAt(0).toUpperCase() + dataKey.slice(1),
-      color: barColor,
+      color: lineColor,
     },
   };
 
@@ -38,12 +39,9 @@ const TimeSeriesChart: React.FC<TimeSeriesChartProps> = ({
     );
   }
   
-  // Ensure data is in the correct format for Recharts, particularly if dates need sorting or formatting.
-  // For simplicity, assuming 'date' is a string suitable for XAxis.
-  // If dates are full ISO strings, you might want to format them for display.
   const formattedData = data.map(item => ({
     ...item,
-    date: item.date, // Potentially format date here: new Date(item.date).toLocaleDateString()
+    date: item.date, 
   }));
 
 
@@ -51,7 +49,7 @@ const TimeSeriesChart: React.FC<TimeSeriesChartProps> = ({
     <ChartContainer config={chartConfig} className={`min-h-[300px] w-full ${className}`}>
       {title && <h3 className="text-lg font-semibold mb-4 text-center">{title}</h3>}
       <ResponsiveContainer width="100%" height={300}>
-        <BarChart data={formattedData} margin={{ top: 5, right: 20, left: -20, bottom: 5 }}>
+        <LineChart data={formattedData} margin={{ top: 5, right: 20, left: -20, bottom: 5 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} />
           <XAxis
             dataKey="date"
@@ -66,15 +64,23 @@ const TimeSeriesChart: React.FC<TimeSeriesChartProps> = ({
             tickMargin={8}
           />
           <ChartTooltip
-            cursor={false}
-            content={<ChartTooltipContent indicator="dot" />}
+            cursor={true} // Show cursor for line chart
+            content={<ChartTooltipContent indicator="line" />} // Use line indicator for tooltip
           />
           <ChartLegend content={<ChartLegendContent />} />
-          <Bar dataKey={dataKey} fill={`var(--color-${dataKey})`} radius={4} />
-        </BarChart>
+          <Line 
+            dataKey={dataKey} 
+            type="monotone" // Makes the line smooth
+            stroke={`var(--color-${dataKey})`} // Use stroke for line color
+            strokeWidth={2} // Line thickness
+            dot={{ r: 3 }} // Show dots on data points
+            activeDot={{ r: 5 }} // Enlarge dot on hover/active
+          />
+        </LineChart>
       </ResponsiveContainer>
     </ChartContainer>
   );
 };
 
 export default TimeSeriesChart;
+
