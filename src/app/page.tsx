@@ -1,8 +1,7 @@
 
 "use client";
 
-import type React from 'react';
-import { useState, useEffect } from 'react';
+import { useState } from 'react'; // Changed this line
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -10,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { UploadCloud, Lightbulb, LineChart, FileText, Loader2 } from "lucide-react";
+import { UploadCloud, Lightbulb, LineChart, FileText, Loader2, CalendarDays } from "lucide-react";
 import Logo from "@/components/logo";
 import TimeSeriesChart from "@/components/time-series-chart";
 import { parseCsvForTimeSeries, type TimeSeriesDataPoint } from "@/lib/csv-parser";
@@ -27,12 +26,13 @@ export default function ScenarioSagePage() {
 
   const [scenarioName, setScenarioName] = useState<string>("Default Scenario");
   const [priceChangeDescription, setPriceChangeDescription] = useState<string>("");
-  
+  const [forecastLength, setForecastLength] = useState<string>("next 30 periods");
+
   const [forecastOutput, setForecastOutput] = useState<ScenarioForecastOutput | null>(null);
   const [forecastedDataPoints, setForecastedDataPoints] = useState<TimeSeriesDataPoint[]>([]);
-  
+
   const [scenarioSummary, setScenarioSummary] = useState<SummarizeScenarioResultsOutput | null>(null);
-  
+
   const [isGeneratingForecast, setIsGeneratingForecast] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
 
@@ -47,7 +47,7 @@ export default function ScenarioSagePage() {
         try {
           const parsedData = parseCsvForTimeSeries(csvContent, 'demand');
           if (parsedData.length === 0 && csvContent.trim() !== "") {
-            toast({ title: "Warning", description: "CSV parsed, but no valid data points found. Check headers: 'timestamp', 'demand'.", variant: "destructive" });
+            toast({ title: "Warning", description: "CSV parsed, but no valid data points found. Check headers: 'timestamp', 'demand', 'item_id', 'store_id', 'price'.", variant: "destructive" });
           }
           setHistoricalDataPoints(parsedData);
         } catch (error) {
@@ -68,12 +68,20 @@ export default function ScenarioSagePage() {
       toast({ title: "Error", description: "Please enter a price change scenario description.", variant: "destructive" });
       return;
     }
+    if (!forecastLength.trim()) {
+      toast({ title: "Error", description: "Please enter a forecast length.", variant: "destructive" });
+      return;
+    }
 
     setIsGeneratingForecast(true);
     setForecastOutput(null);
     setForecastedDataPoints([]);
 
-    const result = await generateForecastAction({ historicalData: historicalDataCsv, priceChangeScenario: priceChangeDescription });
+    const result = await generateForecastAction({
+      historicalData: historicalDataCsv,
+      priceChangeScenario: priceChangeDescription,
+      forecastLength: forecastLength
+    });
 
     if ("error" in result) {
       toast({ title: "Forecast Generation Failed", description: result.error, variant: "destructive" });
@@ -96,15 +104,15 @@ export default function ScenarioSagePage() {
     }
     setIsGeneratingForecast(false);
   };
-  
+
   const handleSummarizeSingleScenario = async (forecastDetails: string) => {
     setIsSummarizing(true);
     const singleScenarioForSummary: SummarizeScenarioResultsInput = {
       scenarios: [
         {
           scenarioName: scenarioName,
-          projectedRevenueChange: 0, 
-          potentialStockoutRisk: "N/A", 
+          projectedRevenueChange: 0,
+          potentialStockoutRisk: "N/A",
           details: forecastDetails,
         },
       ],
@@ -151,16 +159,16 @@ export default function ScenarioSagePage() {
           <Card className="shadow-lg">
             <CardHeader>
               <CardTitle className="flex items-center"><Lightbulb className="mr-2 h-6 w-6 text-primary" /> Define Scenario</CardTitle>
-              <CardDescription>Specify the price change scenario you want to model.</CardDescription>
+              <CardDescription>Specify the scenario details for forecasting.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
                 <Label htmlFor="scenario-name">Scenario Name</Label>
-                <Input 
-                  id="scenario-name" 
-                  value={scenarioName} 
-                  onChange={(e) => setScenarioName(e.target.value)} 
-                  placeholder="e.g., Q4 Price Increase" 
+                <Input
+                  id="scenario-name"
+                  value={scenarioName}
+                  onChange={(e) => setScenarioName(e.target.value)}
+                  placeholder="e.g., Q4 Price Increase"
                 />
               </div>
               <div>
@@ -171,6 +179,18 @@ export default function ScenarioSagePage() {
                   onChange={(e) => setPriceChangeDescription(e.target.value)}
                   placeholder="e.g., A 10% increase in price for product X starting next month."
                   rows={3}
+                />
+              </div>
+              <div>
+                <Label htmlFor="forecast-length" className="flex items-center">
+                  <CalendarDays className="mr-2 h-4 w-4 text-muted-foreground" />
+                  Forecast Length
+                </Label>
+                <Input
+                  id="forecast-length"
+                  value={forecastLength}
+                  onChange={(e) => setForecastLength(e.target.value)}
+                  placeholder="e.g., next 30 days, 1 quarter"
                 />
               </div>
             </CardContent>
@@ -221,7 +241,7 @@ export default function ScenarioSagePage() {
               <CardHeader>
                 <CardTitle className="flex items-center"><FileText className="mr-2 h-6 w-6 text-primary" /> Scenario Analysis</CardTitle>
                  <CardDescription>Summary of the analyzed scenario.</CardDescription>
-              </CardHeader>
+              </Header>
               <CardContent className="space-y-2">
                 <div>
                   <h4 className="font-semibold">Overall Summary:</h4>
@@ -252,3 +272,4 @@ export default function ScenarioSagePage() {
   );
 }
 
+    

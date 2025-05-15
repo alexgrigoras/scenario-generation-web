@@ -1,3 +1,4 @@
+
 "use server";
 
 import { generateScenarioForecast, type ScenarioForecastInput, type ScenarioForecastOutput } from "@/ai/flows/generate-scenario-forecast";
@@ -13,6 +14,9 @@ export async function generateForecastAction(
     }
     if (!input.priceChangeScenario || input.priceChangeScenario.trim() === "") {
       return { error: "Price change scenario description cannot be empty." };
+    }
+    if (!input.forecastLength || input.forecastLength.trim() === "") {
+      return { error: "Forecast length cannot be empty." };
     }
     const result = await generateScenarioForecast(input);
     return result;

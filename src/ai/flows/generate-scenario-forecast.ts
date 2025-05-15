@@ -2,10 +2,10 @@
 // src/ai/flows/generate-scenario-forecast.ts
 'use server';
 /**
- * @fileOverview Forecasts time series data based on a given price change scenario.
+ * @fileOverview Forecasts time series data based on a given price change scenario and forecast length.
  *
- * - generateScenarioForecast - A function that takes historical data and a price change scenario
- *   and returns a forecasted time series.
+ * - generateScenarioForecast - A function that takes historical data, a price change scenario,
+ *   and a forecast length, then returns a forecasted time series.
  * - ScenarioForecastInput - The input type for the generateScenarioForecast function.
  * - ScenarioForecastOutput - The return type for the generateScenarioForecast function.
  */
@@ -22,6 +22,9 @@ const ScenarioForecastInputSchema = z.object({
     .describe(
       'A description of the price change scenario, e.g., a 10% increase in price for product X.'
     ),
+  forecastLength: z
+    .string()
+    .describe('The desired length or period for the forecast (e.g., "next 30 days", "for 6 weeks", "until end of Q4").'),
 });
 export type ScenarioForecastInput = z.infer<typeof ScenarioForecastInputSchema>;
 
@@ -45,10 +48,10 @@ const prompt = ai.definePrompt({
   output: {schema: ScenarioForecastOutputSchema},
   prompt: `You are an expert business analyst specializing in forecasting sales based on pricing scenarios.
 
-You are provided with historical sales and pricing data, and a description of a price change scenario.
+You are provided with historical sales and pricing data, a description of a price change scenario, and a desired forecast length.
 The historical data CSV contains columns: 'timestamp', 'item_id', 'store_id', 'demand', and 'price'. You should use all relevant columns from the historical data (item_id, store_id, price, demand over timestamp) to inform your forecast.
 
-Your task is to generate a forecasted time series of demand, taking into account the impact of the price change described in the scenario.
+Your task is to generate a forecasted time series of demand for the specified forecast length, taking into account the impact of the price change described in the scenario.
 
 Historical Data (CSV format with columns: timestamp, item_id, store_id, demand, price):
 {{historicalData}}
@@ -56,7 +59,10 @@ Historical Data (CSV format with columns: timestamp, item_id, store_id, demand, 
 Price Change Scenario:
 {{priceChangeScenario}}
 
-Output the forecasted time series data in CSV format, including columns for timestamp, price, and demand. The 'timestamp' column in your output should match the format of the input 'timestamp' column. Also generate a short summary of the scenario.
+Forecast Length:
+{{forecastLength}}
+
+Output the forecasted time series data in CSV format, including columns for timestamp, price, and demand. The 'timestamp' column in your output should match the format of the input 'timestamp' column and cover the period specified by the forecast length. Also generate a short summary of the scenario.
 `,
 });
 
