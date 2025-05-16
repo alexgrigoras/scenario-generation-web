@@ -1,7 +1,7 @@
 
 "use client";
 
-import React from 'react';
+import React, { useState, useEffect, type FC, type ChangeEvent } from 'react';
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,7 +13,8 @@ import { UploadCloud, Lightbulb, LineChart, FileText, Loader2, CalendarDays, Dol
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 import Logo from "@/components/logo";
-import TimeSeriesChart, { type CombinedDataPoint } from "@/components/time-series-chart";
+import TimeSeriesChart, { type CombinedDataPoint } from "@/components/time-series-chart"; // CombinedDataPoint might need adjustment or TimeSeriesChart handles new structure
+import type { ChartConfig } from '@/components/ui/chart'; // Assuming ChartConfig is exported
 import { useToast } from "@/hooks/use-toast";
 import { parseCsvForTimeSeries, extractUniqueColumnValues, type TimeSeriesDataPoint } from "@/lib/csv-parser";
 import { generateForecastAction, summarizeResultsAction } from "./actions";
@@ -25,15 +26,18 @@ interface GeneratedScenario {
   name: string;
   priceChangeDescription: string;
   forecastLength: string;
-  // apiInput: ScenarioForecastInput; // Could be useful for re-running, but keep it simple for now
-  apiOutput: ScenarioForecastOutput; 
-  // Store parsed points if we want to quickly re-render old charts, for now, charts show latest.
-  // forecastedDemandPoints: TimeSeriesDataPoint[]; 
-  // forecastedPricePoints: TimeSeriesDataPoint[];
+  apiOutput: ScenarioForecastOutput;
+}
+
+// Define the structure for chart data points when multiple scenarios are present
+interface MultiScenarioChartDataPoint {
+  date: string;
+  historical?: number | null;
+  [scenarioId: string]: number | string | null | undefined; // string for date, number for values
 }
 
 
-const ScenarioSagePage: React.FC = () => {
+const ScenarioSagePage: FC = () => {
   const { toast } = useToast();
 
   const [historicalDataCsv, setHistoricalDataCsvState] = React.useState<string | null>(null);
@@ -45,34 +49,35 @@ const ScenarioSagePage: React.FC = () => {
   const [availableStoreIds, setAvailableStoreIdsState] = React.useState<string[]>([]);
   const [selectedStoreId, setSelectedStoreIdState] = React.useState<string | undefined>(undefined);
 
-  // Demand Data for the latest forecast / historical view
+  // Demand Data
   const [historicalDemandPoints, setHistoricalDemandPointsState] = React.useState<TimeSeriesDataPoint[]>([]);
-  const [forecastedDemandPoints, setForecastedDemandPointsState] = React.useState<TimeSeriesDataPoint[]>([]); // For the latest forecast
-  const [combinedDemandChartData, setCombinedDemandChartDataState] = React.useState<CombinedDataPoint[]>([]);
+  const [combinedDemandChartData, setCombinedDemandChartDataState] = React.useState<MultiScenarioChartDataPoint[]>([]);
+  const [demandChartConfig, setDemandChartConfigState] = React.useState<ChartConfig>({});
   const [demandChartTitle, setDemandChartTitleState] = React.useState<string>("Demand Data Overview");
 
-  // Price Data for the latest forecast / historical view
+  // Price Data
   const [historicalPricePoints, setHistoricalPricePointsState] = React.useState<TimeSeriesDataPoint[]>([]);
-  const [forecastedPricePoints, setForecastedPricePointsState] = React.useState<TimeSeriesDataPoint[]>([]); // For the latest forecast
-  const [combinedPriceChartData, setCombinedPriceChartDataState] = React.useState<CombinedDataPoint[]>([]);
+  const [combinedPriceChartData, setCombinedPriceChartDataState] = React.useState<MultiScenarioChartDataPoint[]>([]);
+  const [priceChartConfig, setPriceChartConfigState] = React.useState<ChartConfig>({});
   const [priceChartTitle, setPriceChartTitleState] = React.useState<string>("Price Data Overview");
 
-  // Inputs for the current scenario being defined
+  // Inputs for the current scenario
   const [scenarioName, setScenarioNameState] = React.useState<string>("Scenario 1");
   const [priceChangeDescription, setPriceChangeDescriptionState] = React.useState<string>("");
   const [forecastLength, setForecastLengthState] = React.useState<string>("next 30 days");
-
-  // Output of the latest individual forecast
-  const [latestForecastOutput, setLatestForecastOutputState] = React.useState<ScenarioForecastOutput | null>(null);
   
-  // Storing all generated scenarios
   const [generatedScenarios, setGeneratedScenariosState] = React.useState<GeneratedScenario[]>([]);
-  
-  // Output of the multi-scenario summary
   const [multiScenarioSummary, setMultiScenarioSummaryState] = React.useState<SummarizeScenarioResultsOutput | null>(null);
 
   const [isGeneratingForecast, setIsGeneratingForecastState] = React.useState(false);
   const [isSummarizing, setIsSummarizingState] = React.useState(false);
+
+  const chartColors = React.useMemo(() => [
+    "hsl(var(--chart-2))",
+    "hsl(var(--chart-3))",
+    "hsl(var(--chart-4))",
+    "hsl(var(--chart-5))",
+  ], []);
 
   // Effect to parse historical data when CSV or filters change
   React.useEffect(() => {
@@ -83,12 +88,6 @@ const ScenarioSagePage: React.FC = () => {
 
         const priceData = parseCsvForTimeSeries(historicalDataCsv, 'price', selectedItemId, selectedStoreId);
         setHistoricalPricePointsState(priceData);
-
-        // When historical filters change, the currently displayed forecast (if any) might become less relevant
-        // or disconnected if it was for a specific item/store combo not captured by the global forecast.
-        // For now, we keep the latest forecast displayed, but its interpretation changes.
-        // A more advanced version might clear or re-filter forecast if applicable.
-
       } catch (error) {
         toast({ title: "Error Parsing Filtered CSV", description: (error as Error).message, variant: "destructive" });
         setHistoricalDemandPointsState([]);
@@ -97,10 +96,30 @@ const ScenarioSagePage: React.FC = () => {
     }
   }, [historicalDataCsv, selectedItemId, selectedStoreId, toast]);
 
-
-  // Effect for Demand Data Chart (latest forecast)
+  // Effect to generate chart configs when scenarios change
   React.useEffect(() => {
-    const dataMap = new Map<string, CombinedDataPoint>();
+    const newDemandChartConfig: ChartConfig = {
+      historical: { label: "Historical Demand", color: "hsl(var(--chart-1))" },
+    };
+    const newPriceChartConfig: ChartConfig = {
+      historical: { label: "Historical Price", color: "hsl(var(--chart-1))" },
+    };
+
+    generatedScenarios.forEach((scenario, index) => {
+      const color = chartColors[index % chartColors.length];
+      newDemandChartConfig[scenario.id] = { label: `${scenario.name} (Demand)`, color: color };
+      newPriceChartConfig[scenario.id] = { label: `${scenario.name} (Price)`, color: color };
+    });
+
+    setDemandChartConfigState(newDemandChartConfig);
+    setPriceChartConfigState(newPriceChartConfig);
+
+  }, [generatedScenarios, chartColors]);
+
+
+  // Effect for Combined Demand Data Chart (historical + all scenarios)
+  React.useEffect(() => {
+    const dataMap = new Map<string, MultiScenarioChartDataPoint>();
     const sortedHistoricalData = [...historicalDemandPoints].sort((a, b) => {
       try {
         const dateA = new Date(a.date).getTime();
@@ -113,26 +132,32 @@ const ScenarioSagePage: React.FC = () => {
     sortedHistoricalData.forEach(dp => {
       dataMap.set(dp.date, { date: dp.date, historical: dp.value });
     });
+    
+    const lastHistoricalPoint = sortedHistoricalData.length > 0 ? sortedHistoricalData[sortedHistoricalData.length - 1] : null;
 
-    forecastedDemandPoints.forEach(dp => {
-      const existing = dataMap.get(dp.date);
-      if (existing) {
-        dataMap.set(dp.date, { ...existing, forecasted: dp.value });
-      } else {
-        dataMap.set(dp.date, { date: dp.date, forecasted: dp.value });
+    generatedScenarios.forEach(scenario => {
+      try {
+        const scenarioDemandPoints = parseCsvForTimeSeries(scenario.apiOutput.forecastedData, 'demand');
+        scenarioDemandPoints.forEach(dp => {
+          const existing = dataMap.get(dp.date) || { date: dp.date };
+          dataMap.set(dp.date, { ...existing, [scenario.id]: dp.value });
+        });
+
+        // Connect historical to this scenario's forecast
+        if (lastHistoricalPoint && scenarioDemandPoints.length > 0) {
+           const connectingPointData = dataMap.get(lastHistoricalPoint.date) || { date: lastHistoricalPoint.date };
+            dataMap.set(lastHistoricalPoint.date, {
+                ...connectingPointData,
+                historical: lastHistoricalPoint.value, // Ensure historical is present
+                [scenario.id]: lastHistoricalPoint.value, // Start forecast from last historical
+            });
+        }
+      } catch (error) {
+        console.error(`Error parsing forecast CSV for scenario ${scenario.name} (demand):`, error);
+        toast({ title: `Error Parsing Forecast (Demand) for ${scenario.name}`, description: (error as Error).message, variant: "destructive" });
       }
     });
-
-    if (sortedHistoricalData.length > 0 && forecastedDemandPoints.length > 0) {
-      const lastHistoricalPoint = sortedHistoricalData[sortedHistoricalData.length - 1];
-      const connectingPointData = dataMap.get(lastHistoricalPoint.date) || { date: lastHistoricalPoint.date };
-      dataMap.set(lastHistoricalPoint.date, {
-        ...connectingPointData,
-        historical: lastHistoricalPoint.value,
-        forecasted: lastHistoricalPoint.value, 
-      });
-    }
-
+    
     const finalSortedData = Array.from(dataMap.values()).sort((a, b) => {
       try {
         const dateA = new Date(a.date).getTime();
@@ -144,21 +169,20 @@ const ScenarioSagePage: React.FC = () => {
     
     setCombinedDemandChartDataState(finalSortedData);
 
-    let title = "Demand Data Overview";
-    if (historicalDemandPoints.length > 0 && forecastedDemandPoints.length === 0) title = "Historical Demand Data";
-    else if (forecastedDemandPoints.length > 0 && historicalDemandPoints.length > 0) title = "Demand Overview: Historical & Latest Forecast";
-    else if (forecastedDemandPoints.length > 0 && historicalDemandPoints.length === 0) title = "Latest Forecasted Demand Data";
-    
+    let title = "Demand Overview";
+    if (generatedScenarios.length > 0) title += `: Historical & ${generatedScenarios.length} Forecast(s)`;
+    else if (historicalDemandPoints.length > 0) title = "Historical Demand Data";
     if (selectedItemId) title += ` (Item: ${selectedItemId})`;
     if (selectedStoreId) title += ` (Store: ${selectedStoreId})`;
     setDemandChartTitleState(title);
 
-  }, [historicalDemandPoints, forecastedDemandPoints, selectedItemId, selectedStoreId]);
+  }, [historicalDemandPoints, generatedScenarios, selectedItemId, selectedStoreId, toast]);
 
-  // Effect for Price Data Chart (latest forecast)
+
+  // Effect for Combined Price Data Chart (historical + all scenarios)
   React.useEffect(() => {
-    const dataMap = new Map<string, CombinedDataPoint>();
-    const sortedHistoricalData = [...historicalPricePoints].sort((a, b) => {
+    const dataMap = new Map<string, MultiScenarioChartDataPoint>();
+     const sortedHistoricalData = [...historicalPricePoints].sort((a, b) => {
       try {
         const dateA = new Date(a.date).getTime();
         const dateB = new Date(b.date).getTime();
@@ -171,24 +195,29 @@ const ScenarioSagePage: React.FC = () => {
       dataMap.set(dp.date, { date: dp.date, historical: dp.value });
     });
 
-    forecastedPricePoints.forEach(dp => {
-      const existing = dataMap.get(dp.date);
-      if (existing) {
-        dataMap.set(dp.date, { ...existing, forecasted: dp.value });
-      } else {
-        dataMap.set(dp.date, { date: dp.date, forecasted: dp.value });
+    const lastHistoricalPoint = sortedHistoricalData.length > 0 ? sortedHistoricalData[sortedHistoricalData.length - 1] : null;
+
+    generatedScenarios.forEach(scenario => {
+      try {
+        const scenarioPricePoints = parseCsvForTimeSeries(scenario.apiOutput.forecastedData, 'price');
+        scenarioPricePoints.forEach(dp => {
+          const existing = dataMap.get(dp.date) || { date: dp.date };
+          dataMap.set(dp.date, { ...existing, [scenario.id]: dp.value });
+        });
+        
+        if (lastHistoricalPoint && scenarioPricePoints.length > 0) {
+            const connectingPointData = dataMap.get(lastHistoricalPoint.date) || { date: lastHistoricalPoint.date };
+            dataMap.set(lastHistoricalPoint.date, {
+                ...connectingPointData,
+                historical: lastHistoricalPoint.value, // Ensure historical is present
+                [scenario.id]: lastHistoricalPoint.value, // Start forecast from last historical
+            });
+        }
+      } catch (error) {
+        console.error(`Error parsing forecast CSV for scenario ${scenario.name} (price):`, error);
+        toast({ title: `Error Parsing Forecast (Price) for ${scenario.name}`, description: (error as Error).message, variant: "destructive" });
       }
     });
-
-    if (sortedHistoricalData.length > 0 && forecastedPricePoints.length > 0) {
-      const lastHistoricalPoint = sortedHistoricalData[sortedHistoricalData.length - 1];
-      const connectingPointData = dataMap.get(lastHistoricalPoint.date) || { date: lastHistoricalPoint.date };
-      dataMap.set(lastHistoricalPoint.date, {
-        ...connectingPointData,
-        historical: lastHistoricalPoint.value,
-        forecasted: lastHistoricalPoint.value,
-      });
-    }
 
     const finalSortedData = Array.from(dataMap.values()).sort((a, b) => {
       try {
@@ -201,18 +230,17 @@ const ScenarioSagePage: React.FC = () => {
     
     setCombinedPriceChartDataState(finalSortedData);
     
-    let title = "Price Data Overview";
-    if (historicalPricePoints.length > 0 && forecastedPricePoints.length === 0) title = "Historical Price Data";
-    else if (forecastedPricePoints.length > 0 && historicalPricePoints.length > 0) title = "Price Overview: Historical & Latest Forecast";
-    else if (forecastedPricePoints.length > 0 && historicalPricePoints.length === 0) title = "Latest Forecasted Price Data";
-
+    let title = "Price Overview";
+    if (generatedScenarios.length > 0) title += `: Historical & ${generatedScenarios.length} Forecast(s)`;
+    else if (historicalPricePoints.length > 0) title = "Historical Price Data";
     if (selectedItemId) title += ` (Item: ${selectedItemId})`;
     if (selectedStoreId) title += ` (Store: ${selectedStoreId})`;
     setPriceChartTitleState(title);
 
-  }, [historicalPricePoints, forecastedPricePoints, selectedItemId, selectedStoreId]);
+  }, [historicalPricePoints, generatedScenarios, selectedItemId, selectedStoreId, toast]);
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+
+  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       setFileNameState(file.name);
@@ -242,13 +270,9 @@ const ScenarioSagePage: React.FC = () => {
           }
           setHistoricalPricePointsState(initialPriceData);
 
-          // Reset forecast related states
-          setForecastedDemandPointsState([]);
-          setForecastedPricePointsState([]);
-          setLatestForecastOutputState(null);
-          setGeneratedScenariosState([]); // Clear previous scenarios when new data is uploaded
+          setGeneratedScenariosState([]); 
           setMultiScenarioSummaryState(null);
-          setScenarioNameState(`Scenario ${generatedScenarios.length + 1}`);
+          setScenarioNameState(`Scenario 1`);
 
 
         } catch (error) {
@@ -282,10 +306,7 @@ const ScenarioSagePage: React.FC = () => {
     }
 
     setIsGeneratingForecastState(true);
-    setLatestForecastOutputState(null); 
-    setForecastedDemandPointsState([]); 
-    setForecastedPricePointsState([]);
-    setMultiScenarioSummaryState(null); // Clear previous multi-summary
+    setMultiScenarioSummaryState(null); 
 
     const currentInputs: ScenarioForecastInput = {
       historicalData: historicalDataCsv, 
@@ -298,39 +319,31 @@ const ScenarioSagePage: React.FC = () => {
     if ("error" in result) {
       toast({ title: "Forecast Generation Failed", description: result.error, variant: "destructive" });
     } else {
-      setLatestForecastOutputState(result);
       try {
-        const parsedForecastDemand = parseCsvForTimeSeries(result.forecastedData, 'demand');
-         if (parsedForecastDemand.length === 0 && result.forecastedData.trim() !== "") {
-            toast({ title: "Warning (Forecast Demand)", description: "Forecast CSV parsed, but no valid demand data points found.", variant: "destructive" });
-          }
-        setForecastedDemandPointsState(parsedForecastDemand);
+        // Check if forecast CSV is empty or malformed before trying to parse
+        const forecastDemandPoints = parseCsvForTimeSeries(result.forecastedData, 'demand');
+        const forecastPricePoints = parseCsvForTimeSeries(result.forecastedData, 'price');
 
-        const parsedForecastPrice = parseCsvForTimeSeries(result.forecastedData, 'price');
-         if (parsedForecastPrice.length === 0 && result.forecastedData.trim() !== "") {
-            toast({ title: "Warning (Forecast Price)", description: "Forecast CSV parsed, but no valid price data points found.", variant: "destructive" });
-          }
-        setForecastedPricePointsState(parsedForecastPrice);
+        if (forecastDemandPoints.length === 0 && forecastPricePoints.length === 0 && result.forecastedData.trim() !== "") {
+             toast({ title: "Warning: Forecast Data", description: "Forecast generated, but it seems empty or not in the expected CSV format (timestamp,price,demand). Charts may not update for this scenario.", variant: "destructive" });
+        }
         
-        // Add to generated scenarios
         const newGeneratedScenario: GeneratedScenario = {
-          id: new Date().toISOString() + Math.random().toString(), // simple unique id
+          id: new Date().toISOString() + Math.random().toString(), 
           name: scenarioName,
           priceChangeDescription: priceChangeDescription,
           forecastLength: forecastLength,
           apiOutput: result,
         };
         setGeneratedScenariosState(prevScenarios => [...prevScenarios, newGeneratedScenario]);
-        setScenarioNameState(`Scenario ${generatedScenarios.length + 2}`); // Prepare for next scenario
-        setPriceChangeDescriptionState(""); // Optionally clear for next input
+        setScenarioNameState(`Scenario ${generatedScenarios.length + 2}`); 
+        setPriceChangeDescriptionState(""); 
 
 
         toast({ title: "Success", description: `Forecast for "${newGeneratedScenario.name}" generated successfully!` });
 
       } catch (error) {
-        toast({ title: "Error Parsing Forecast CSV", description: (error as Error).message, variant: "destructive" });
-        setForecastedDemandPointsState([]);
-        setForecastedPricePointsState([]);
+        toast({ title: "Error Processing Forecast Output", description: (error as Error).message, variant: "destructive" });
       }
     }
     setIsGeneratingForecastState(false);
@@ -347,7 +360,6 @@ const ScenarioSagePage: React.FC = () => {
     const scenariosForSummary: SummarizeScenarioResultsInput['scenarios'] = generatedScenarios.map(gs => ({
       scenarioName: gs.name,
       details: gs.apiOutput.summary,
-      // projectedRevenueChange and potentialStockoutRisk are now optional in the flow
     }));
 
     const summaryResult = await summarizeResultsAction({ scenarios: scenariosForSummary });
@@ -471,31 +483,39 @@ const ScenarioSagePage: React.FC = () => {
           <Card className="shadow-lg">
             <CardHeader>
               <CardTitle className="flex items-center"><LineChart className="mr-2 h-6 w-6 text-primary" /> Demand Visualization</CardTitle>
-               <CardDescription>Shows historical demand and the latest generated forecast.</CardDescription>
+               <CardDescription>Shows historical demand and all generated forecasts.</CardDescription>
             </CardHeader>
             <CardContent>
-              <TimeSeriesChart data={combinedDemandChartData} title={demandChartTitle} />
+              <TimeSeriesChart 
+                data={combinedDemandChartData} 
+                title={demandChartTitle} 
+                chartConfig={demandChartConfig}
+              />
             </CardContent>
           </Card>
 
           <Card className="shadow-lg">
             <CardHeader>
               <CardTitle className="flex items-center"><DollarSign className="mr-2 h-6 w-6 text-primary" /> Price Visualization</CardTitle>
-              <CardDescription>Shows historical prices and the latest generated forecast.</CardDescription>
+              <CardDescription>Shows historical prices and all generated forecasts.</CardDescription>
             </CardHeader>
             <CardContent>
-              <TimeSeriesChart data={combinedPriceChartData} title={priceChartTitle} />
+               <TimeSeriesChart 
+                data={combinedPriceChartData} 
+                title={priceChartTitle} 
+                chartConfig={priceChartConfig}
+              />
             </CardContent>
           </Card>
 
-          {latestForecastOutput && (
+          {generatedScenarios.length > 0 && (
             <Card className="shadow-lg">
               <CardHeader>
                 <CardTitle className="flex items-center"><FileText className="mr-2 h-6 w-6 text-primary" /> Latest Forecast Summary</CardTitle>
-                <CardDescription>AI-generated summary for the most recent scenario: "{generatedScenarios[generatedScenarios.length-1]?.name || 'Current'}"</CardDescription>
+                <CardDescription>AI-generated summary for the most recent scenario: "{generatedScenarios[generatedScenarios.length-1]?.name}"</CardDescription>
               </CardHeader>
               <CardContent>
-                <p className="text-sm text-muted-foreground whitespace-pre-wrap">{latestForecastOutput.summary}</p>
+                <p className="text-sm text-muted-foreground whitespace-pre-wrap">{generatedScenarios[generatedScenarios.length-1]?.apiOutput.summary}</p>
               </CardContent>
             </Card>
           )}
@@ -558,7 +578,7 @@ const ScenarioSagePage: React.FC = () => {
           </Card>
 
 
-          {(isGeneratingForecast || isSummarizing) && !latestForecastOutput && !multiScenarioSummary && (
+          {(isGeneratingForecast || isSummarizing) && generatedScenarios.length === 0 && !multiScenarioSummary && (
             <div className="flex items-center justify-center p-4 text-muted-foreground">
               <Loader2 className="mr-2 h-5 w-5 animate-spin" /> 
               {isGeneratingForecast ? "Generating forecast..." : "Summarizing scenarios..."}
@@ -575,4 +595,3 @@ const ScenarioSagePage: React.FC = () => {
 
 export default ScenarioSagePage;
     
-
