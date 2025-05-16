@@ -9,11 +9,10 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { UploadCloud, Lightbulb, LineChart, FileText, Loader2, CalendarDays } from "lucide-react";
 
 import Logo from "@/components/logo";
-import TimeSeriesChart from "@/components/time-series-chart";
+import TimeSeriesChart, { type CombinedDataPoint } from "@/components/time-series-chart";
 import { useToast } from "@/hooks/use-toast";
 import { parseCsvForTimeSeries, type TimeSeriesDataPoint } from "@/lib/csv-parser";
 import { generateForecastAction, summarizeResultsAction } from "./actions";
@@ -33,11 +32,54 @@ const ScenarioSagePage: React.FC = () => {
 
   const [forecastOutput, setForecastOutput] = useState<ScenarioForecastOutput | null>(null);
   const [forecastedDataPoints, setForecastedDataPoints] = useState<TimeSeriesDataPoint[]>([]);
+  
+  const [combinedChartData, setCombinedChartData] = useState<CombinedDataPoint[]>([]);
+  const [chartTitle, setChartTitle] = useState<string>("Demand Data Overview");
 
   const [scenarioSummary, setScenarioSummary] = useState<SummarizeScenarioResultsOutput | null>(null);
 
   const [isGeneratingForecast, setIsGeneratingForecast] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
+
+  useEffect(() => {
+    const dataMap = new Map<string, CombinedDataPoint>();
+
+    historicalDataPoints.forEach(dp => {
+      dataMap.set(dp.date, { date: dp.date, historical: dp.value });
+    });
+
+    forecastedDataPoints.forEach(dp => {
+      const existing = dataMap.get(dp.date);
+      if (existing) {
+        dataMap.set(dp.date, { ...existing, forecasted: dp.value });
+      } else {
+        dataMap.set(dp.date, { date: dp.date, forecasted: dp.value });
+      }
+    });
+
+    const sortedData = Array.from(dataMap.values()).sort((a, b) => {
+        // Attempt to parse dates for robust sorting, fallback for simple string compare if parsing fails
+        try {
+            const dateA = new Date(a.date).getTime();
+            const dateB = new Date(b.date).getTime();
+            if (!isNaN(dateA) && !isNaN(dateB)) {
+                return dateA - dateB;
+            }
+        } catch (e) { /* ignore date parsing errors for sorting, use string compare */ }
+        return a.date.localeCompare(b.date); // Fallback to string comparison
+    });
+    
+    setCombinedChartData(sortedData);
+
+    if (forecastedDataPoints.length > 0 && historicalDataPoints.length > 0) {
+      setChartTitle("Demand Overview: Historical & Forecasted");
+    } else if (historicalDataPoints.length > 0) {
+      setChartTitle("Historical Demand Data");
+    } else {
+      setChartTitle("Demand Data Overview");
+    }
+
+  }, [historicalDataPoints, forecastedDataPoints]);
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -50,9 +92,12 @@ const ScenarioSagePage: React.FC = () => {
         try {
           const parsedData = parseCsvForTimeSeries(csvContent, 'demand');
           if (parsedData.length === 0 && csvContent.trim() !== "") {
-            toast({ title: "Warning", description: "CSV parsed, but no valid data points found. Check headers: 'timestamp', 'item_id', 'store_id', 'demand', 'price'.", variant: "destructive" });
+            toast({ title: "Warning", description: "CSV parsed, but no valid 'timestamp' or 'demand' data found. Check headers and content.", variant: "destructive" });
           }
           setHistoricalDataPoints(parsedData);
+          setForecastedDataPoints([]); // Clear previous forecast on new historical data
+          setForecastOutput(null);
+          setScenarioSummary(null);
         } catch (error) {
           toast({ title: "Error Parsing CSV", description: (error as Error).message, variant: "destructive" });
           setHistoricalDataPoints([]);
@@ -114,8 +159,8 @@ const ScenarioSagePage: React.FC = () => {
       scenarios: [
         {
           scenarioName: scenarioName,
-          projectedRevenueChange: 0, // Placeholder, as this isn't directly calculated by the forecast AI
-          potentialStockoutRisk: "N/A", // Placeholder
+          projectedRevenueChange: 0, 
+          potentialStockoutRisk: "N/A",
           details: forecastDetails,
         },
       ],
@@ -143,12 +188,11 @@ const ScenarioSagePage: React.FC = () => {
       </header>
 
       <main className="w-full max-w-6xl grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Column 1: Data Upload & Scenario Input */}
         <div className="lg:col-span-1 space-y-6">
           <Card className="shadow-lg">
             <CardHeader>
               <CardTitle className="flex items-center"><UploadCloud className="mr-2 h-6 w-6 text-primary" /> Upload Historical Data</CardTitle>
-              <CardDescription>Upload your historical data in CSV format. Ensure columns 'timestamp', 'item_id', 'store_id', 'demand', and 'price' exist.</CardDescription>
+              <CardDescription>Upload CSV: 'timestamp', 'item_id', 'store_id', 'demand', 'price'.</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
@@ -206,25 +250,13 @@ const ScenarioSagePage: React.FC = () => {
           </Card>
         </div>
 
-        {/* Column 2: Visualization & Summaries */}
         <div className="lg:col-span-2 space-y-6">
           <Card className="shadow-lg">
             <CardHeader>
               <CardTitle className="flex items-center"><LineChart className="mr-2 h-6 w-6 text-primary" /> Data Visualization</CardTitle>
             </CardHeader>
             <CardContent>
-              <Tabs defaultValue="initial" className="w-full">
-                <TabsList className="grid w-full grid-cols-2 mb-4">
-                  <TabsTrigger value="initial">Initial Demand</TabsTrigger>
-                  <TabsTrigger value="forecasted" disabled={forecastedDataPoints.length === 0}>Forecasted Demand</TabsTrigger>
-                </TabsList>
-                <TabsContent value="initial">
-                  <TimeSeriesChart data={historicalDataPoints} title="Historical Demand Data" lineColor="hsl(var(--chart-1))" />
-                </TabsContent>
-                <TabsContent value="forecasted">
-                  <TimeSeriesChart data={forecastedDataPoints} title="Forecasted Demand Data" lineColor="hsl(var(--chart-2))" />
-                </TabsContent>
-              </Tabs>
+              <TimeSeriesChart data={combinedChartData} title={chartTitle} />
             </CardContent>
           </Card>
 
@@ -261,7 +293,7 @@ const ScenarioSagePage: React.FC = () => {
               </CardContent>
             </Card>
           )}
-          {(isGeneratingForecast || isSummarizing) && ( // Combined loading state for simplicity
+          {(isGeneratingForecast || isSummarizing) && (
             <div className="flex items-center justify-center p-4 text-muted-foreground">
               <Loader2 className="mr-2 h-5 w-5 animate-spin" /> 
               {isGeneratingForecast ? "Generating forecast..." : "Analyzing scenario..."}
