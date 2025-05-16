@@ -1,15 +1,14 @@
 
 "use client";
 
-import type React from 'react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type FC, type ChangeEvent } from 'react';
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { UploadCloud, Lightbulb, LineChart, FileText, Loader2, CalendarDays } from "lucide-react";
+import { UploadCloud, Lightbulb, LineChart, FileText, Loader2, CalendarDays, DollarSign } from "lucide-react";
 
 import Logo from "@/components/logo";
 import TimeSeriesChart, { type CombinedDataPoint } from "@/components/time-series-chart";
@@ -19,46 +18,51 @@ import { generateForecastAction, summarizeResultsAction } from "./actions";
 import type { ScenarioForecastOutput } from '@/ai/flows/generate-scenario-forecast';
 import type { SummarizeScenarioResultsInput, SummarizeScenarioResultsOutput } from '@/ai/flows/summarize-scenario-results';
 
-const ScenarioSagePage: React.FC = () => {
+const ScenarioSagePage: FC = () => {
   const { toast } = useToast();
 
-  const [historicalDataCsv, setHistoricalDataCsv] = useState<string | null>(null);
-  const [historicalDataPoints, setHistoricalDataPoints] = useState<TimeSeriesDataPoint[]>([]);
-  const [fileName, setFileName] = useState<string | null>(null);
+  const [historicalDataCsv, setHistoricalDataCsvState] = useState<string | null>(null);
+  const [fileName, setFileNameState] = useState<string | null>(null);
 
-  const [scenarioName, setScenarioName] = useState<string>("Default Scenario");
-  const [priceChangeDescription, setPriceChangeDescription] = useState<string>("");
-  const [forecastLength, setForecastLength] = useState<string>("next 30 periods");
+  // Demand Data
+  const [historicalDemandPoints, setHistoricalDemandPointsState] = useState<TimeSeriesDataPoint[]>([]);
+  const [forecastedDemandPoints, setForecastedDemandPointsState] = useState<TimeSeriesDataPoint[]>([]);
+  const [combinedDemandChartData, setCombinedDemandChartDataState] = useState<CombinedDataPoint[]>([]);
+  const [demandChartTitle, setDemandChartTitleState] = useState<string>("Demand Data Overview");
 
-  const [forecastOutput, setForecastOutput] = useState<ScenarioForecastOutput | null>(null);
-  const [forecastedDataPoints, setForecastedDataPoints] = useState<TimeSeriesDataPoint[]>([]);
-  
-  const [combinedChartData, setCombinedChartData] = useState<CombinedDataPoint[]>([]);
-  const [chartTitle, setChartTitle] = useState<string>("Demand Data Overview");
+  // Price Data
+  const [historicalPricePoints, setHistoricalPricePointsState] = useState<TimeSeriesDataPoint[]>([]);
+  const [forecastedPricePoints, setForecastedPricePointsState] = useState<TimeSeriesDataPoint[]>([]);
+  const [combinedPriceChartData, setCombinedPriceChartDataState] = useState<CombinedDataPoint[]>([]);
+  const [priceChartTitle, setPriceChartTitleState] = useState<string>("Price Data Overview");
 
-  const [scenarioSummary, setScenarioSummary] = useState<SummarizeScenarioResultsOutput | null>(null);
+  const [scenarioName, setScenarioNameState] = useState<string>("Default Scenario");
+  const [priceChangeDescription, setPriceChangeDescriptionState] = useState<string>("");
+  const [forecastLength, setForecastLengthState] = useState<string>("next 30 periods");
 
-  const [isGeneratingForecast, setIsGeneratingForecast] = useState(false);
-  const [isSummarizing, setIsSummarizing] = useState(false);
+  const [forecastOutput, setForecastOutputState] = useState<ScenarioForecastOutput | null>(null);
+  const [scenarioSummary, setScenarioSummaryState] = useState<SummarizeScenarioResultsOutput | null>(null);
 
+  const [isGeneratingForecast, setIsGeneratingForecastState] = useState(false);
+  const [isSummarizing, setIsSummarizingState] = useState(false);
+
+  // Effect for Demand Data
   useEffect(() => {
     const dataMap = new Map<string, CombinedDataPoint>();
-
-    // Sort historical data points by date to correctly identify the last one for connection
-    const sortedHistoricalData = [...historicalDataPoints].sort((a, b) => {
+    const sortedHistoricalData = [...historicalDemandPoints].sort((a, b) => {
       try {
         const dateA = new Date(a.date).getTime();
         const dateB = new Date(b.date).getTime();
         if (!isNaN(dateA) && !isNaN(dateB)) return dateA - dateB;
-      } catch (e) { /* ignore date parsing errors for sorting */ }
-      return a.date.localeCompare(b.date); // Fallback to string comparison
+      } catch (e) { /* ignore */ }
+      return a.date.localeCompare(b.date);
     });
 
     sortedHistoricalData.forEach(dp => {
       dataMap.set(dp.date, { date: dp.date, historical: dp.value });
     });
 
-    forecastedDataPoints.forEach(dp => {
+    forecastedDemandPoints.forEach(dp => {
       const existing = dataMap.get(dp.date);
       if (existing) {
         dataMap.set(dp.date, { ...existing, forecasted: dp.value });
@@ -67,64 +71,120 @@ const ScenarioSagePage: React.FC = () => {
       }
     });
 
-    // Ensure connection if both historical and forecast data exist
-    if (sortedHistoricalData.length > 0 && forecastedDataPoints.length > 0) {
+    if (sortedHistoricalData.length > 0 && forecastedDemandPoints.length > 0) {
       const lastHistoricalPoint = sortedHistoricalData[sortedHistoricalData.length - 1];
-      
-      // Get or create the entry for the last historical date
       const connectingPointData = dataMap.get(lastHistoricalPoint.date) || { date: lastHistoricalPoint.date };
-      
-      // Set its forecasted value to be the same as its historical value to make the lines connect
       dataMap.set(lastHistoricalPoint.date, {
         ...connectingPointData,
-        historical: lastHistoricalPoint.value, // Ensure historical value is present
-        forecasted: lastHistoricalPoint.value, // This creates the visual connection
+        historical: lastHistoricalPoint.value,
+        forecasted: lastHistoricalPoint.value, 
       });
     }
 
     const finalSortedData = Array.from(dataMap.values()).sort((a, b) => {
-        try {
-            const dateA = new Date(a.date).getTime();
-            const dateB = new Date(b.date).getTime();
-            if (!isNaN(dateA) && !isNaN(dateB)) {
-                return dateA - dateB;
-            }
-        } catch (e) { /* ignore date parsing errors for sorting */ }
-        return a.date.localeCompare(b.date);
+      try {
+        const dateA = new Date(a.date).getTime();
+        const dateB = new Date(b.date).getTime();
+        if (!isNaN(dateA) && !isNaN(dateB)) return dateA - dateB;
+      } catch (e) { /* ignore */ }
+      return a.date.localeCompare(b.date);
     });
     
-    setCombinedChartData(finalSortedData);
+    setCombinedDemandChartDataState(finalSortedData);
 
-    if (forecastedDataPoints.length > 0 && historicalDataPoints.length > 0) {
-      setChartTitle("Demand Overview: Historical & Forecasted");
-    } else if (historicalDataPoints.length > 0) {
-      setChartTitle("Historical Demand Data");
+    if (forecastedDemandPoints.length > 0 && historicalDemandPoints.length > 0) {
+      setDemandChartTitleState("Demand Overview: Historical & Forecasted");
+    } else if (historicalDemandPoints.length > 0) {
+      setDemandChartTitleState("Historical Demand Data");
     } else {
-      setChartTitle("Demand Data Overview");
+      setDemandChartTitleState("Demand Data Overview");
+    }
+  }, [historicalDemandPoints, forecastedDemandPoints]);
+
+  // Effect for Price Data
+  useEffect(() => {
+    const dataMap = new Map<string, CombinedDataPoint>();
+    const sortedHistoricalData = [...historicalPricePoints].sort((a, b) => {
+      try {
+        const dateA = new Date(a.date).getTime();
+        const dateB = new Date(b.date).getTime();
+        if (!isNaN(dateA) && !isNaN(dateB)) return dateA - dateB;
+      } catch (e) { /* ignore */ }
+      return a.date.localeCompare(b.date);
+    });
+
+    sortedHistoricalData.forEach(dp => {
+      dataMap.set(dp.date, { date: dp.date, historical: dp.value });
+    });
+
+    forecastedPricePoints.forEach(dp => {
+      const existing = dataMap.get(dp.date);
+      if (existing) {
+        dataMap.set(dp.date, { ...existing, forecasted: dp.value });
+      } else {
+        dataMap.set(dp.date, { date: dp.date, forecasted: dp.value });
+      }
+    });
+
+    if (sortedHistoricalData.length > 0 && forecastedPricePoints.length > 0) {
+      const lastHistoricalPoint = sortedHistoricalData[sortedHistoricalData.length - 1];
+      const connectingPointData = dataMap.get(lastHistoricalPoint.date) || { date: lastHistoricalPoint.date };
+      dataMap.set(lastHistoricalPoint.date, {
+        ...connectingPointData,
+        historical: lastHistoricalPoint.value,
+        forecasted: lastHistoricalPoint.value,
+      });
     }
 
-  }, [historicalDataPoints, forecastedDataPoints]);
+    const finalSortedData = Array.from(dataMap.values()).sort((a, b) => {
+      try {
+        const dateA = new Date(a.date).getTime();
+        const dateB = new Date(b.date).getTime();
+        if (!isNaN(dateA) && !isNaN(dateB)) return dateA - dateB;
+      } catch (e) { /* ignore */ }
+      return a.date.localeCompare(b.date);
+    });
+    
+    setCombinedPriceChartDataState(finalSortedData);
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (forecastedPricePoints.length > 0 && historicalPricePoints.length > 0) {
+      setPriceChartTitleState("Price Overview: Historical & Forecasted");
+    } else if (historicalPricePoints.length > 0) {
+      setPriceChartTitleState("Historical Price Data");
+    } else {
+      setPriceChartTitleState("Price Data Overview");
+    }
+  }, [historicalPricePoints, forecastedPricePoints]);
+
+  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      setFileName(file.name);
+      setFileNameState(file.name);
       const reader = new FileReader();
       reader.onload = (e) => {
         const csvContent = e.target?.result as string;
-        setHistoricalDataCsv(csvContent);
+        setHistoricalDataCsvState(csvContent);
         try {
-          const parsedData = parseCsvForTimeSeries(csvContent, 'demand');
-          if (parsedData.length === 0 && csvContent.trim() !== "") {
-            toast({ title: "Warning", description: "CSV parsed, but no valid 'timestamp' or 'demand' data found. Check headers and content.", variant: "destructive" });
+          const parsedDemandData = parseCsvForTimeSeries(csvContent, 'demand');
+          if (parsedDemandData.length === 0 && csvContent.trim() !== "") {
+            toast({ title: "Warning (Demand)", description: "CSV parsed, but no valid 'timestamp' or 'demand' data found. Check headers and content.", variant: "destructive" });
           }
-          setHistoricalDataPoints(parsedData);
-          setForecastedDataPoints([]); 
-          setForecastOutput(null);
-          setScenarioSummary(null);
+          setHistoricalDemandPointsState(parsedDemandData);
+          
+          const parsedPriceData = parseCsvForTimeSeries(csvContent, 'price');
+           if (parsedPriceData.length === 0 && csvContent.trim() !== "") {
+            toast({ title: "Warning (Price)", description: "CSV parsed, but no valid 'timestamp' or 'price' data found. Check headers and content.", variant: "destructive" });
+          }
+          setHistoricalPricePointsState(parsedPriceData);
+
+          setForecastedDemandPointsState([]);
+          setForecastedPricePointsState([]);
+          setForecastOutputState(null);
+          setScenarioSummaryState(null);
         } catch (error) {
           toast({ title: "Error Parsing CSV", description: (error as Error).message, variant: "destructive" });
-          setHistoricalDataPoints([]);
+          setHistoricalDemandPointsState([]);
+          setHistoricalPricePointsState([]);
         }
       };
       reader.readAsText(file);
@@ -145,9 +205,10 @@ const ScenarioSagePage: React.FC = () => {
       return;
     }
 
-    setIsGeneratingForecast(true);
-    setForecastOutput(null);
-    setForecastedDataPoints([]);
+    setIsGeneratingForecastState(true);
+    setForecastOutputState(null);
+    setForecastedDemandPointsState([]);
+    setForecastedPricePointsState([]);
 
     const result = await generateForecastAction({
       historicalData: historicalDataCsv,
@@ -158,33 +219,40 @@ const ScenarioSagePage: React.FC = () => {
     if ("error" in result) {
       toast({ title: "Forecast Generation Failed", description: result.error, variant: "destructive" });
     } else {
-      setForecastOutput(result);
+      setForecastOutputState(result);
       try {
-        const parsedForecast = parseCsvForTimeSeries(result.forecastedData, 'demand');
-         if (parsedForecast.length === 0 && result.forecastedData.trim() !== "") {
-            toast({ title: "Warning", description: "Forecast CSV parsed, but no valid data points found. Check AI output format. Expected columns: 'timestamp', 'demand'.", variant: "destructive" });
+        const parsedForecastDemand = parseCsvForTimeSeries(result.forecastedData, 'demand');
+         if (parsedForecastDemand.length === 0 && result.forecastedData.trim() !== "") {
+            toast({ title: "Warning (Forecast Demand)", description: "Forecast CSV parsed, but no valid demand data points found. Expected columns: 'timestamp', 'demand'.", variant: "destructive" });
           }
-        setForecastedDataPoints(parsedForecast);
-        toast({ title: "Success", description: "Forecast generated successfully!" });
+        setForecastedDemandPointsState(parsedForecastDemand);
 
+        const parsedForecastPrice = parseCsvForTimeSeries(result.forecastedData, 'price');
+         if (parsedForecastPrice.length === 0 && result.forecastedData.trim() !== "") {
+            toast({ title: "Warning (Forecast Price)", description: "Forecast CSV parsed, but no valid price data points found. Expected columns: 'timestamp', 'price'.", variant: "destructive" });
+          }
+        setForecastedPricePointsState(parsedForecastPrice);
+
+        toast({ title: "Success", description: "Forecast generated successfully!" });
         handleSummarizeSingleScenario(result.summary || "No summary provided by AI.");
 
       } catch (error) {
         toast({ title: "Error Parsing Forecast CSV", description: (error as Error).message, variant: "destructive" });
-        setForecastedDataPoints([]);
+        setForecastedDemandPointsState([]);
+        setForecastedPricePointsState([]);
       }
     }
-    setIsGeneratingForecast(false);
+    setIsGeneratingForecastState(false);
   };
 
   const handleSummarizeSingleScenario = async (forecastDetails: string) => {
-    setIsSummarizing(true);
+    setIsSummarizingState(true);
     const singleScenarioForSummary: SummarizeScenarioResultsInput = {
       scenarios: [
         {
           scenarioName: scenarioName,
           projectedRevenueChange: 0, 
-          potentialStockoutRisk: "N/A",
+          potentialStockoutRisk: "N/A", 
           details: forecastDetails,
         },
       ],
@@ -193,12 +261,12 @@ const ScenarioSagePage: React.FC = () => {
     const summaryResult = await summarizeResultsAction(singleScenarioForSummary);
     if ("error" in summaryResult) {
       toast({ title: "Scenario Summary Failed", description: summaryResult.error, variant: "destructive" });
-      setScenarioSummary(null);
+      setScenarioSummaryState(null);
     } else {
-      setScenarioSummary(summaryResult);
+      setScenarioSummaryState(summaryResult);
        toast({ title: "Info", description: "Single scenario analysis generated." });
     }
-    setIsSummarizing(false);
+    setIsSummarizingState(false);
   };
 
 
@@ -207,7 +275,7 @@ const ScenarioSagePage: React.FC = () => {
       <header className="w-full max-w-6xl mb-8">
         <Logo />
         <p className="text-muted-foreground mt-2">
-          Leverage AI to understand the impact of price changes on demand.
+          Leverage AI to understand the impact of price changes on demand and price evolution.
         </p>
       </header>
 
@@ -238,7 +306,7 @@ const ScenarioSagePage: React.FC = () => {
                 <Input
                   id="scenario-name"
                   value={scenarioName}
-                  onChange={(e) => setScenarioName(e.target.value)}
+                  onChange={(e) => setScenarioNameState(e.target.value)}
                   placeholder="e.g., Q4 Price Increase"
                 />
               </div>
@@ -247,7 +315,7 @@ const ScenarioSagePage: React.FC = () => {
                 <Textarea
                   id="price-change-description"
                   value={priceChangeDescription}
-                  onChange={(e) => setPriceChangeDescription(e.target.value)}
+                  onChange={(e) => setPriceChangeDescriptionState(e.target.value)}
                   placeholder="e.g., A 10% increase in price for product X starting next month."
                   rows={3}
                 />
@@ -260,7 +328,7 @@ const ScenarioSagePage: React.FC = () => {
                 <Input
                   id="forecast-length"
                   value={forecastLength}
-                  onChange={(e) => setForecastLength(e.target.value)}
+                  onChange={(e) => setForecastLengthState(e.target.value)}
                   placeholder="e.g., next 30 days, 1 quarter"
                 />
               </div>
@@ -277,10 +345,19 @@ const ScenarioSagePage: React.FC = () => {
         <div className="lg:col-span-2 space-y-6">
           <Card className="shadow-lg">
             <CardHeader>
-              <CardTitle className="flex items-center"><LineChart className="mr-2 h-6 w-6 text-primary" /> Data Visualization</CardTitle>
+              <CardTitle className="flex items-center"><LineChart className="mr-2 h-6 w-6 text-primary" /> Demand Visualization</CardTitle>
             </CardHeader>
             <CardContent>
-              <TimeSeriesChart data={combinedChartData} title={chartTitle} />
+              <TimeSeriesChart data={combinedDemandChartData} title={demandChartTitle} />
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-lg">
+            <CardHeader>
+              <CardTitle className="flex items-center"><DollarSign className="mr-2 h-6 w-6 text-primary" /> Price Visualization</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <TimeSeriesChart data={combinedPriceChartData} title={priceChartTitle} />
             </CardContent>
           </Card>
 
@@ -293,6 +370,7 @@ const ScenarioSagePage: React.FC = () => {
                 <p className="text-sm text-muted-foreground whitespace-pre-wrap">{forecastOutput.summary}</p>
               </CardContent>
             </Card>
+          </Card>
           )}
 
           {scenarioSummary && (
@@ -333,4 +411,3 @@ const ScenarioSagePage: React.FC = () => {
 };
 
 export default ScenarioSagePage;
-
