@@ -44,7 +44,17 @@ const ScenarioSagePage: React.FC = () => {
   useEffect(() => {
     const dataMap = new Map<string, CombinedDataPoint>();
 
-    historicalDataPoints.forEach(dp => {
+    // Sort historical data points by date to correctly identify the last one for connection
+    const sortedHistoricalData = [...historicalDataPoints].sort((a, b) => {
+      try {
+        const dateA = new Date(a.date).getTime();
+        const dateB = new Date(b.date).getTime();
+        if (!isNaN(dateA) && !isNaN(dateB)) return dateA - dateB;
+      } catch (e) { /* ignore date parsing errors for sorting */ }
+      return a.date.localeCompare(b.date); // Fallback to string comparison
+    });
+
+    sortedHistoricalData.forEach(dp => {
       dataMap.set(dp.date, { date: dp.date, historical: dp.value });
     });
 
@@ -57,19 +67,33 @@ const ScenarioSagePage: React.FC = () => {
       }
     });
 
-    const sortedData = Array.from(dataMap.values()).sort((a, b) => {
-        // Attempt to parse dates for robust sorting, fallback for simple string compare if parsing fails
+    // Ensure connection if both historical and forecast data exist
+    if (sortedHistoricalData.length > 0 && forecastedDataPoints.length > 0) {
+      const lastHistoricalPoint = sortedHistoricalData[sortedHistoricalData.length - 1];
+      
+      // Get or create the entry for the last historical date
+      const connectingPointData = dataMap.get(lastHistoricalPoint.date) || { date: lastHistoricalPoint.date };
+      
+      // Set its forecasted value to be the same as its historical value to make the lines connect
+      dataMap.set(lastHistoricalPoint.date, {
+        ...connectingPointData,
+        historical: lastHistoricalPoint.value, // Ensure historical value is present
+        forecasted: lastHistoricalPoint.value, // This creates the visual connection
+      });
+    }
+
+    const finalSortedData = Array.from(dataMap.values()).sort((a, b) => {
         try {
             const dateA = new Date(a.date).getTime();
             const dateB = new Date(b.date).getTime();
             if (!isNaN(dateA) && !isNaN(dateB)) {
                 return dateA - dateB;
             }
-        } catch (e) { /* ignore date parsing errors for sorting, use string compare */ }
-        return a.date.localeCompare(b.date); // Fallback to string comparison
+        } catch (e) { /* ignore date parsing errors for sorting */ }
+        return a.date.localeCompare(b.date);
     });
     
-    setCombinedChartData(sortedData);
+    setCombinedChartData(finalSortedData);
 
     if (forecastedDataPoints.length > 0 && historicalDataPoints.length > 0) {
       setChartTitle("Demand Overview: Historical & Forecasted");
@@ -95,7 +119,7 @@ const ScenarioSagePage: React.FC = () => {
             toast({ title: "Warning", description: "CSV parsed, but no valid 'timestamp' or 'demand' data found. Check headers and content.", variant: "destructive" });
           }
           setHistoricalDataPoints(parsedData);
-          setForecastedDataPoints([]); // Clear previous forecast on new historical data
+          setForecastedDataPoints([]); 
           setForecastOutput(null);
           setScenarioSummary(null);
         } catch (error) {
@@ -309,3 +333,4 @@ const ScenarioSagePage: React.FC = () => {
 };
 
 export default ScenarioSagePage;
+
