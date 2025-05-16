@@ -1,3 +1,4 @@
+
 'use server';
 
 /**
@@ -18,11 +19,13 @@ const SummarizeScenarioResultsInputSchema = z.object({
         scenarioName: z.string().describe('The name of the scenario.'),
         projectedRevenueChange: z
           .number()
-          .describe('The projected revenue change for the scenario.'),
+          .optional()
+          .describe('The projected revenue change for the scenario (optional).'),
         potentialStockoutRisk: z
           .string()
-          .describe('The potential stockout risk for the scenario.'),
-        details: z.string().optional().describe('Additional details about the scenario.'),
+          .optional()
+          .describe('The potential stockout risk for the scenario (optional).'),
+        details: z.string().optional().describe('Additional details about the scenario, typically the AI-generated summary of an individual forecast.'),
       })
     )
     .describe('An array of what-if scenarios and their results.'),
@@ -32,9 +35,9 @@ export type SummarizeScenarioResultsInput = z.infer<
 >;
 
 const SummarizeScenarioResultsOutputSchema = z.object({
-  summary: z.string().describe('A summary of the scenario results.'),
-  mostPromisingScenario: z.string().describe('The most promising scenario.'),
-  riskiestScenario: z.string().describe('The riskiest scenario.'),
+  summary: z.string().describe('A comprehensive summary of all analyzed scenario results.'),
+  mostPromisingScenario: z.string().describe('The name or description of the most promising scenario identified from the batch, and why.'),
+  riskiestScenario: z.string().describe('The name or description of the riskiest scenario identified from the batch, and why.'),
 });
 export type SummarizeScenarioResultsOutput = z.infer<
   typeof SummarizeScenarioResultsOutputSchema
@@ -50,27 +53,33 @@ const prompt = ai.definePrompt({
   name: 'summarizeScenarioResultsPrompt',
   input: {schema: SummarizeScenarioResultsInputSchema},
   output: {schema: SummarizeScenarioResultsOutputSchema},
-  prompt: `You are a business analyst summarizing the results of what-if scenarios.
+  prompt: `You are a business analyst tasked with summarizing the results of multiple what-if pricing scenarios.
 
-  Given the following scenarios, provide a summary highlighting the most promising and riskiest scenarios, including key metrics like projected revenue change and potential stockout risks.
+  For each scenario, you will receive its name and a detailed text summary of its forecasted impact. Some scenarios might also include quantitative metrics like 'Projected Revenue Change' or 'Potential Stockout Risk'.
+
+  Your goal is to provide a consolidated analysis that includes:
+  1. An overall summary of all scenarios considered.
+  2. Identification of the 'Most Promising Scenario' and a brief explanation of why, based on the provided details.
+  3. Identification of the 'Riskiest Scenario' and a brief explanation of why, based on the provided details.
+
+  Focus on the qualitative information in the 'details' field for each scenario, using any quantitative metrics as supplementary information if available.
 
   Scenarios:
   {{#each scenarios}}
   Scenario Name: {{this.scenarioName}}
+  {{#if this.projectedRevenueChange}}
   Projected Revenue Change: {{this.projectedRevenueChange}}
-  Potential Stockout Risk: {{this.potentialStockoutRisk}}
-  {{#if this.details}}
-  Details: {{this.details}}
   {{/if}}
-  \n
+  {{#if this.potentialStockoutRisk}}
+  Potential Stockout Risk: {{this.potentialStockoutRisk}}
+  {{/if}}
+  {{#if this.details}}
+  Details: {{{this.details}}}
+  {{/if}}
+  \n-------------------------\n
   {{/each}}
   \n
-  Summary should include:
-  * An overall summary of the scenarios.
-  * Identification of the most promising scenario and why.
-  * Identification of the riskiest scenario and why.
-  \n
-  Output in the following JSON format:
+  Please structure your output in the following JSON format:
   {
   "summary": "...",
   "mostPromisingScenario": "...",
@@ -90,3 +99,4 @@ const summarizeScenarioResultsFlow = ai.defineFlow(
     return output!;
   }
 );
+

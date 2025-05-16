@@ -9,15 +9,29 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { UploadCloud, Lightbulb, LineChart, FileText, Loader2, CalendarDays, DollarSign, Filter } from "lucide-react";
+import { UploadCloud, Lightbulb, LineChart, FileText, Loader2, CalendarDays, DollarSign, Filter, ListChecks, History } from "lucide-react";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 import Logo from "@/components/logo";
 import TimeSeriesChart, { type CombinedDataPoint } from "@/components/time-series-chart";
 import { useToast } from "@/hooks/use-toast";
 import { parseCsvForTimeSeries, extractUniqueColumnValues, type TimeSeriesDataPoint } from "@/lib/csv-parser";
 import { generateForecastAction, summarizeResultsAction } from "./actions";
-import type { ScenarioForecastOutput } from '@/ai/flows/generate-scenario-forecast';
+import type { ScenarioForecastInput, ScenarioForecastOutput } from '@/ai/flows/generate-scenario-forecast';
 import type { SummarizeScenarioResultsInput, SummarizeScenarioResultsOutput } from '@/ai/flows/summarize-scenario-results';
+
+interface GeneratedScenario {
+  id: string;
+  name: string;
+  priceChangeDescription: string;
+  forecastLength: string;
+  // apiInput: ScenarioForecastInput; // Could be useful for re-running, but keep it simple for now
+  apiOutput: ScenarioForecastOutput; 
+  // Store parsed points if we want to quickly re-render old charts, for now, charts show latest.
+  // forecastedDemandPoints: TimeSeriesDataPoint[]; 
+  // forecastedPricePoints: TimeSeriesDataPoint[];
+}
+
 
 const ScenarioSagePage: React.FC = () => {
   const { toast } = useToast();
@@ -31,24 +45,31 @@ const ScenarioSagePage: React.FC = () => {
   const [availableStoreIds, setAvailableStoreIdsState] = React.useState<string[]>([]);
   const [selectedStoreId, setSelectedStoreIdState] = React.useState<string | undefined>(undefined);
 
-  // Demand Data
+  // Demand Data for the latest forecast / historical view
   const [historicalDemandPoints, setHistoricalDemandPointsState] = React.useState<TimeSeriesDataPoint[]>([]);
-  const [forecastedDemandPoints, setForecastedDemandPointsState] = React.useState<TimeSeriesDataPoint[]>([]);
+  const [forecastedDemandPoints, setForecastedDemandPointsState] = React.useState<TimeSeriesDataPoint[]>([]); // For the latest forecast
   const [combinedDemandChartData, setCombinedDemandChartDataState] = React.useState<CombinedDataPoint[]>([]);
   const [demandChartTitle, setDemandChartTitleState] = React.useState<string>("Demand Data Overview");
 
-  // Price Data
+  // Price Data for the latest forecast / historical view
   const [historicalPricePoints, setHistoricalPricePointsState] = React.useState<TimeSeriesDataPoint[]>([]);
-  const [forecastedPricePoints, setForecastedPricePointsState] = React.useState<TimeSeriesDataPoint[]>([]);
+  const [forecastedPricePoints, setForecastedPricePointsState] = React.useState<TimeSeriesDataPoint[]>([]); // For the latest forecast
   const [combinedPriceChartData, setCombinedPriceChartDataState] = React.useState<CombinedDataPoint[]>([]);
   const [priceChartTitle, setPriceChartTitleState] = React.useState<string>("Price Data Overview");
 
-  const [scenarioName, setScenarioNameState] = React.useState<string>("Default Scenario");
+  // Inputs for the current scenario being defined
+  const [scenarioName, setScenarioNameState] = React.useState<string>("Scenario 1");
   const [priceChangeDescription, setPriceChangeDescriptionState] = React.useState<string>("");
-  const [forecastLength, setForecastLengthState] = React.useState<string>("next 30 periods");
+  const [forecastLength, setForecastLengthState] = React.useState<string>("next 30 days");
 
-  const [forecastOutput, setForecastOutputState] = React.useState<ScenarioForecastOutput | null>(null);
-  const [scenarioSummary, setScenarioSummaryState] = React.useState<SummarizeScenarioResultsOutput | null>(null);
+  // Output of the latest individual forecast
+  const [latestForecastOutput, setLatestForecastOutputState] = React.useState<ScenarioForecastOutput | null>(null);
+  
+  // Storing all generated scenarios
+  const [generatedScenarios, setGeneratedScenariosState] = React.useState<GeneratedScenario[]>([]);
+  
+  // Output of the multi-scenario summary
+  const [multiScenarioSummary, setMultiScenarioSummaryState] = React.useState<SummarizeScenarioResultsOutput | null>(null);
 
   const [isGeneratingForecast, setIsGeneratingForecastState] = React.useState(false);
   const [isSummarizing, setIsSummarizingState] = React.useState(false);
@@ -63,13 +84,10 @@ const ScenarioSagePage: React.FC = () => {
         const priceData = parseCsvForTimeSeries(historicalDataCsv, 'price', selectedItemId, selectedStoreId);
         setHistoricalPricePointsState(priceData);
 
-        // Clear forecast when historical filters change, as forecast is for the whole dataset
-        // but only if a filter is active, otherwise we keep the forecast to compare against different filtered views
-        if(selectedItemId || selectedStoreId){
-          setForecastedDemandPointsState([]);
-          setForecastedPricePointsState([]);
-          // setForecastOutputState(null); // Keep output summary
-        }
+        // When historical filters change, the currently displayed forecast (if any) might become less relevant
+        // or disconnected if it was for a specific item/store combo not captured by the global forecast.
+        // For now, we keep the latest forecast displayed, but its interpretation changes.
+        // A more advanced version might clear or re-filter forecast if applicable.
 
       } catch (error) {
         toast({ title: "Error Parsing Filtered CSV", description: (error as Error).message, variant: "destructive" });
@@ -80,7 +98,7 @@ const ScenarioSagePage: React.FC = () => {
   }, [historicalDataCsv, selectedItemId, selectedStoreId, toast]);
 
 
-  // Effect for Demand Data Chart
+  // Effect for Demand Data Chart (latest forecast)
   React.useEffect(() => {
     const dataMap = new Map<string, CombinedDataPoint>();
     const sortedHistoricalData = [...historicalDemandPoints].sort((a, b) => {
@@ -128,8 +146,8 @@ const ScenarioSagePage: React.FC = () => {
 
     let title = "Demand Data Overview";
     if (historicalDemandPoints.length > 0 && forecastedDemandPoints.length === 0) title = "Historical Demand Data";
-    else if (forecastedDemandPoints.length > 0 && historicalDemandPoints.length > 0) title = "Demand Overview: Historical & Forecasted";
-    else if (forecastedDemandPoints.length > 0 && historicalDemandPoints.length === 0) title = "Forecasted Demand Data";
+    else if (forecastedDemandPoints.length > 0 && historicalDemandPoints.length > 0) title = "Demand Overview: Historical & Latest Forecast";
+    else if (forecastedDemandPoints.length > 0 && historicalDemandPoints.length === 0) title = "Latest Forecasted Demand Data";
     
     if (selectedItemId) title += ` (Item: ${selectedItemId})`;
     if (selectedStoreId) title += ` (Store: ${selectedStoreId})`;
@@ -137,7 +155,7 @@ const ScenarioSagePage: React.FC = () => {
 
   }, [historicalDemandPoints, forecastedDemandPoints, selectedItemId, selectedStoreId]);
 
-  // Effect for Price Data Chart
+  // Effect for Price Data Chart (latest forecast)
   React.useEffect(() => {
     const dataMap = new Map<string, CombinedDataPoint>();
     const sortedHistoricalData = [...historicalPricePoints].sort((a, b) => {
@@ -185,8 +203,8 @@ const ScenarioSagePage: React.FC = () => {
     
     let title = "Price Data Overview";
     if (historicalPricePoints.length > 0 && forecastedPricePoints.length === 0) title = "Historical Price Data";
-    else if (forecastedPricePoints.length > 0 && historicalPricePoints.length > 0) title = "Price Overview: Historical & Forecasted";
-    else if (forecastedPricePoints.length > 0 && historicalPricePoints.length === 0) title = "Forecasted Price Data";
+    else if (forecastedPricePoints.length > 0 && historicalPricePoints.length > 0) title = "Price Overview: Historical & Latest Forecast";
+    else if (forecastedPricePoints.length > 0 && historicalPricePoints.length === 0) title = "Latest Forecasted Price Data";
 
     if (selectedItemId) title += ` (Item: ${selectedItemId})`;
     if (selectedStoreId) title += ` (Store: ${selectedStoreId})`;
@@ -206,29 +224,32 @@ const ScenarioSagePage: React.FC = () => {
         try {
           const items = extractUniqueColumnValues(csvContent, 'item_id');
           setAvailableItemIdsState(items);
-          setSelectedItemIdState(undefined); // Default to all items
+          setSelectedItemIdState(undefined); 
 
           const stores = extractUniqueColumnValues(csvContent, 'store_id');
           setAvailableStoreIdsState(stores);
-          setSelectedStoreIdState(undefined); // Default to all stores
+          setSelectedStoreIdState(undefined); 
           
-          // Initial parse (useEffect will handle further parsing based on filters)
           const initialDemandData = parseCsvForTimeSeries(csvContent, 'demand', undefined, undefined);
            if (initialDemandData.length === 0 && csvContent.trim() !== "") {
-            toast({ title: "Warning (Demand Data)", description: "CSV parsed, but no 'timestamp' or 'demand' data found. Check headers and content.", variant: "destructive" });
+            toast({ title: "Warning (Demand Data)", description: "CSV parsed, but no 'timestamp' or 'demand' data found.", variant: "destructive" });
           }
           setHistoricalDemandPointsState(initialDemandData);
           
           const initialPriceData = parseCsvForTimeSeries(csvContent, 'price', undefined, undefined);
            if (initialPriceData.length === 0 && csvContent.trim() !== "") {
-            toast({ title: "Warning (Price Data)", description: "CSV parsed, but no 'timestamp' or 'price' data found. Check headers and content.", variant: "destructive" });
+            toast({ title: "Warning (Price Data)", description: "CSV parsed, but no 'timestamp' or 'price' data found.", variant: "destructive" });
           }
           setHistoricalPricePointsState(initialPriceData);
 
+          // Reset forecast related states
           setForecastedDemandPointsState([]);
           setForecastedPricePointsState([]);
-          setForecastOutputState(null);
-          setScenarioSummaryState(null);
+          setLatestForecastOutputState(null);
+          setGeneratedScenariosState([]); // Clear previous scenarios when new data is uploaded
+          setMultiScenarioSummaryState(null);
+          setScenarioNameState(`Scenario ${generatedScenarios.length + 1}`);
+
 
         } catch (error) {
            toast({ title: "Error Processing CSV", description: (error as Error).message, variant: "destructive" });
@@ -247,6 +268,10 @@ const ScenarioSagePage: React.FC = () => {
       toast({ title: "Error", description: "Please upload historical data first.", variant: "destructive" });
       return;
     }
+    if (!scenarioName.trim()) {
+      toast({ title: "Error", description: "Please enter a scenario name.", variant: "destructive" });
+      return;
+    }
     if (!priceChangeDescription.trim()) {
       toast({ title: "Error", description: "Please enter a price change scenario description.", variant: "destructive" });
       return;
@@ -257,45 +282,50 @@ const ScenarioSagePage: React.FC = () => {
     }
 
     setIsGeneratingForecastState(true);
-    setForecastOutputState(null);
-    // When generating a new forecast, it's based on the *entire* dataset.
-    // So, we should clear any existing item/store specific forecasted points.
-    setForecastedDemandPointsState([]);
+    setLatestForecastOutputState(null); 
+    setForecastedDemandPointsState([]); 
     setForecastedPricePointsState([]);
+    setMultiScenarioSummaryState(null); // Clear previous multi-summary
 
-
-    // Reset historical data to unfiltered for forecast generation context if needed by AI.
-    // Currently, the AI takes the full CSV, so local filtering doesn't affect its input.
-    // However, ensure the historical display reflects the current filter.
-    // The useEffect for historical data already handles filtering for display.
-
-    const result = await generateForecastAction({
+    const currentInputs: ScenarioForecastInput = {
       historicalData: historicalDataCsv, 
       priceChangeScenario: priceChangeDescription,
       forecastLength: forecastLength
-    });
+    };
+
+    const result = await generateForecastAction(currentInputs);
 
     if ("error" in result) {
       toast({ title: "Forecast Generation Failed", description: result.error, variant: "destructive" });
     } else {
-      setForecastOutputState(result);
+      setLatestForecastOutputState(result);
       try {
-        // The AI's forecastedData CSV should contain 'timestamp', 'price', and 'demand'.
-        // This forecast is for the *entire* dataset, not filtered by item/store.
         const parsedForecastDemand = parseCsvForTimeSeries(result.forecastedData, 'demand');
          if (parsedForecastDemand.length === 0 && result.forecastedData.trim() !== "") {
-            toast({ title: "Warning (Forecast Demand)", description: "Forecast CSV parsed, but no valid demand data points found. Expected columns: 'timestamp', 'demand'.", variant: "destructive" });
+            toast({ title: "Warning (Forecast Demand)", description: "Forecast CSV parsed, but no valid demand data points found.", variant: "destructive" });
           }
         setForecastedDemandPointsState(parsedForecastDemand);
 
         const parsedForecastPrice = parseCsvForTimeSeries(result.forecastedData, 'price');
          if (parsedForecastPrice.length === 0 && result.forecastedData.trim() !== "") {
-            toast({ title: "Warning (Forecast Price)", description: "Forecast CSV parsed, but no valid price data points found. Expected columns: 'timestamp', 'price'.", variant: "destructive" });
+            toast({ title: "Warning (Forecast Price)", description: "Forecast CSV parsed, but no valid price data points found.", variant: "destructive" });
           }
         setForecastedPricePointsState(parsedForecastPrice);
+        
+        // Add to generated scenarios
+        const newGeneratedScenario: GeneratedScenario = {
+          id: new Date().toISOString() + Math.random().toString(), // simple unique id
+          name: scenarioName,
+          priceChangeDescription: priceChangeDescription,
+          forecastLength: forecastLength,
+          apiOutput: result,
+        };
+        setGeneratedScenariosState(prevScenarios => [...prevScenarios, newGeneratedScenario]);
+        setScenarioNameState(`Scenario ${generatedScenarios.length + 2}`); // Prepare for next scenario
+        setPriceChangeDescriptionState(""); // Optionally clear for next input
 
-        toast({ title: "Success", description: "Forecast generated successfully!" });
-        handleSummarizeSingleScenario(result.summary || "No summary provided by AI.");
+
+        toast({ title: "Success", description: `Forecast for "${newGeneratedScenario.name}" generated successfully!` });
 
       } catch (error) {
         toast({ title: "Error Parsing Forecast CSV", description: (error as Error).message, variant: "destructive" });
@@ -305,27 +335,28 @@ const ScenarioSagePage: React.FC = () => {
     }
     setIsGeneratingForecastState(false);
   };
-
-  const handleSummarizeSingleScenario = async (forecastDetails: string) => {
+  
+  const handleSummarizeAllScenarios = async () => {
+    if (generatedScenarios.length === 0) {
+      toast({ title: "No Scenarios", description: "Please generate at least one scenario to summarize.", variant: "destructive" });
+      return;
+    }
     setIsSummarizingState(true);
-    const singleScenarioForSummary: SummarizeScenarioResultsInput = {
-      scenarios: [
-        {
-          scenarioName: scenarioName,
-          projectedRevenueChange: 0, // Placeholder, AI summary focuses on qualitative text
-          potentialStockoutRisk: "N/A", // Placeholder
-          details: forecastDetails,
-        },
-      ],
-    };
+    setMultiScenarioSummaryState(null);
 
-    const summaryResult = await summarizeResultsAction(singleScenarioForSummary);
+    const scenariosForSummary: SummarizeScenarioResultsInput['scenarios'] = generatedScenarios.map(gs => ({
+      scenarioName: gs.name,
+      details: gs.apiOutput.summary,
+      // projectedRevenueChange and potentialStockoutRisk are now optional in the flow
+    }));
+
+    const summaryResult = await summarizeResultsAction({ scenarios: scenariosForSummary });
+
     if ("error" in summaryResult) {
-      toast({ title: "Scenario Summary Failed", description: summaryResult.error, variant: "destructive" });
-      setScenarioSummaryState(null);
+      toast({ title: "Scenario Summarization Failed", description: summaryResult.error, variant: "destructive" });
     } else {
-      setScenarioSummaryState(summaryResult);
-       toast({ title: "Info", description: "Single scenario analysis generated." });
+      setMultiScenarioSummaryState(summaryResult);
+      toast({ title: "Success", description: "All generated scenarios have been summarized." });
     }
     setIsSummarizingState(false);
   };
@@ -358,13 +389,13 @@ const ScenarioSagePage: React.FC = () => {
 
           <Card className="shadow-lg">
             <CardHeader>
-              <CardTitle className="flex items-center"><Filter className="mr-2 h-5 w-5 text-primary" /> Filter Historical Data</CardTitle>
-              <CardDescription>Select item and store to filter the historical charts. Forecast applies to the entire dataset.</CardDescription>
+              <CardTitle className="flex items-center"><Filter className="mr-2 h-5 w-5 text-primary" /> Filter Historical Data View</CardTitle>
+              <CardDescription>Select item/store to filter charts. Forecast applies to the entire dataset.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
                 <Label htmlFor="item-select">Item ID</Label>
-                <Select value={selectedItemId || "all"} onValueChange={(value) => setSelectedItemIdState(value === "all" ? undefined : value)}>
+                <Select value={selectedItemId || "all"} onValueChange={(value) => setSelectedItemIdState(value === "all" ? undefined : value)} disabled={availableItemIds.length === 0}>
                   <SelectTrigger id="item-select">
                     <SelectValue placeholder="All Items" />
                   </SelectTrigger>
@@ -376,7 +407,7 @@ const ScenarioSagePage: React.FC = () => {
               </div>
               <div>
                 <Label htmlFor="store-select">Store ID</Label>
-                <Select value={selectedStoreId || "all"} onValueChange={(value) => setSelectedStoreIdState(value === "all" ? undefined : value)}>
+                <Select value={selectedStoreId || "all"} onValueChange={(value) => setSelectedStoreIdState(value === "all" ? undefined : value)} disabled={availableStoreIds.length === 0}>
                   <SelectTrigger id="store-select">
                     <SelectValue placeholder="All Stores" />
                   </SelectTrigger>
@@ -391,8 +422,8 @@ const ScenarioSagePage: React.FC = () => {
 
           <Card className="shadow-lg">
             <CardHeader>
-              <CardTitle className="flex items-center"><Lightbulb className="mr-2 h-6 w-6 text-primary" /> Define Scenario</CardTitle>
-              <CardDescription>Specify the scenario details for forecasting.</CardDescription>
+              <CardTitle className="flex items-center"><Lightbulb className="mr-2 h-6 w-6 text-primary" /> Define & Generate Scenario</CardTitle>
+              <CardDescription>Specify details for a new forecast scenario.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
@@ -410,7 +441,7 @@ const ScenarioSagePage: React.FC = () => {
                   id="price-change-description"
                   value={priceChangeDescription}
                   onChange={(e) => setPriceChangeDescriptionState(e.target.value)}
-                  placeholder="e.g., A 10% increase in price for product X starting next month."
+                  placeholder="e.g., A 10% increase in price for product X."
                   rows={3}
                 />
               </div>
@@ -430,7 +461,7 @@ const ScenarioSagePage: React.FC = () => {
             <CardFooter>
               <Button onClick={handleGenerateForecast} disabled={isGeneratingForecast || !historicalDataCsv} className="w-full bg-accent hover:bg-accent/90 text-accent-foreground">
                 {isGeneratingForecast ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <LineChart className="mr-2 h-4 w-4" />}
-                Generate Forecast
+                Generate & Add Scenario
               </Button>
             </CardFooter>
           </Card>
@@ -440,6 +471,7 @@ const ScenarioSagePage: React.FC = () => {
           <Card className="shadow-lg">
             <CardHeader>
               <CardTitle className="flex items-center"><LineChart className="mr-2 h-6 w-6 text-primary" /> Demand Visualization</CardTitle>
+               <CardDescription>Shows historical demand and the latest generated forecast.</CardDescription>
             </CardHeader>
             <CardContent>
               <TimeSeriesChart data={combinedDemandChartData} title={demandChartTitle} />
@@ -449,49 +481,87 @@ const ScenarioSagePage: React.FC = () => {
           <Card className="shadow-lg">
             <CardHeader>
               <CardTitle className="flex items-center"><DollarSign className="mr-2 h-6 w-6 text-primary" /> Price Visualization</CardTitle>
+              <CardDescription>Shows historical prices and the latest generated forecast.</CardDescription>
             </CardHeader>
             <CardContent>
               <TimeSeriesChart data={combinedPriceChartData} title={priceChartTitle} />
             </CardContent>
           </Card>
 
-          {forecastOutput && (
+          {latestForecastOutput && (
             <Card className="shadow-lg">
               <CardHeader>
-                <CardTitle className="flex items-center"><FileText className="mr-2 h-6 w-6 text-primary" /> Forecast Summary</CardTitle>
+                <CardTitle className="flex items-center"><FileText className="mr-2 h-6 w-6 text-primary" /> Latest Forecast Summary</CardTitle>
+                <CardDescription>AI-generated summary for the most recent scenario: "{generatedScenarios[generatedScenarios.length-1]?.name || 'Current'}"</CardDescription>
               </CardHeader>
               <CardContent>
-                <p className="text-sm text-muted-foreground whitespace-pre-wrap">{forecastOutput.summary}</p>
+                <p className="text-sm text-muted-foreground whitespace-pre-wrap">{latestForecastOutput.summary}</p>
               </CardContent>
             </Card>
           )}
+          
+          <Card className="shadow-lg">
+            <CardHeader>
+              <CardTitle className="flex items-center"><History className="mr-2 h-6 w-6 text-primary" /> Scenario History & Bulk Summary</CardTitle>
+              <CardDescription>Review past scenarios and generate a collective summary.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {generatedScenarios.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No scenarios generated yet. Define and generate a scenario to see its history here.</p>
+              ) : (
+                <Accordion type="single" collapsible className="w-full">
+                  {generatedScenarios.map((scenario, index) => (
+                    <AccordionItem value={`item-${index}`} key={scenario.id}>
+                      <AccordionTrigger className="text-sm font-medium">
+                        {index + 1}. {scenario.name}
+                      </AccordionTrigger>
+                      <AccordionContent className="space-y-2 text-xs">
+                        <p><strong>Description:</strong> {scenario.priceChangeDescription}</p>
+                        <p><strong>Forecast Length:</strong> {scenario.forecastLength}</p>
+                        <p className="font-semibold mt-1">AI Summary:</p>
+                        <p className="whitespace-pre-wrap text-muted-foreground bg-muted/50 p-2 rounded-md">{scenario.apiOutput.summary || "No summary provided."}</p>
+                      </AccordionContent>
+                    </AccordionItem>
+                  ))}
+                </Accordion>
+              )}
+            </CardContent>
+            <CardFooter className="flex-col items-stretch space-y-4">
+               <Button 
+                onClick={handleSummarizeAllScenarios} 
+                disabled={isSummarizing || generatedScenarios.length === 0} 
+                className="w-full"
+              >
+                {isSummarizing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ListChecks className="mr-2 h-4 w-4" />}
+                Summarize All Generated Scenarios
+              </Button>
+              {multiScenarioSummary && (
+                <div className="mt-4 p-4 border-t">
+                  <h4 className="font-semibold text-lg mb-2">Collective Scenario Analysis:</h4>
+                  <div className="space-y-3">
+                    <div>
+                      <h5 className="font-semibold">Overall Summary:</h5>
+                      <p className="text-sm text-muted-foreground whitespace-pre-wrap">{multiScenarioSummary.summary}</p>
+                    </div>
+                    <div>
+                      <h5 className="font-semibold">Most Promising Scenario/Aspect:</h5>
+                      <p className="text-sm text-muted-foreground whitespace-pre-wrap">{multiScenarioSummary.mostPromisingScenario}</p>
+                    </div>
+                    <div>
+                      <h5 className="font-semibold">Riskiest Scenario/Aspect:</h5>
+                      <p className="text-sm text-muted-foreground whitespace-pre-wrap">{multiScenarioSummary.riskiestScenario}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </CardFooter>
+          </Card>
 
-          {scenarioSummary && (
-             <Card className="shadow-lg">
-              <CardHeader>
-                <CardTitle className="flex items-center"><FileText className="mr-2 h-6 w-6 text-primary" /> Scenario Analysis</CardTitle>
-                 <CardDescription>Summary of the analyzed scenario.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <div>
-                  <h4 className="font-semibold">Overall Summary:</h4>
-                  <p className="text-sm text-muted-foreground whitespace-pre-wrap">{scenarioSummary.summary}</p>
-                </div>
-                <div>
-                  <h4 className="font-semibold">Most Promising Aspect:</h4>
-                   <p className="text-sm text-muted-foreground whitespace-pre-wrap">{scenarioSummary.mostPromisingScenario}</p>
-                </div>
-                 <div>
-                  <h4 className="font-semibold">Riskiest Aspect:</h4>
-                  <p className="text-sm text-muted-foreground whitespace-pre-wrap">{scenarioSummary.riskiestScenario}</p>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-          {(isGeneratingForecast || isSummarizing) && (
+
+          {(isGeneratingForecast || isSummarizing) && !latestForecastOutput && !multiScenarioSummary && (
             <div className="flex items-center justify-center p-4 text-muted-foreground">
               <Loader2 className="mr-2 h-5 w-5 animate-spin" /> 
-              {isGeneratingForecast ? "Generating forecast..." : "Analyzing scenario..."}
+              {isGeneratingForecast ? "Generating forecast..." : "Summarizing scenarios..."}
             </div>
           )}
         </div>
@@ -505,3 +575,4 @@ const ScenarioSagePage: React.FC = () => {
 
 export default ScenarioSagePage;
     
+
