@@ -17,7 +17,7 @@ import Logo from "@/components/logo";
 import TimeSeriesChart from "@/components/time-series-chart";
 import type { ChartConfig } from '@/components/ui/chart';
 import { useToast } from "@/hooks/use-toast";
-import { parseCsvForTimeSeries, extractUniqueColumnValues, type TimeSeriesDataPoint } from "@/lib/csv-parser";
+import { parseCsvForTimeSeries, extractUniqueColumnValues, detectTimeSeriesFrequency, type TimeSeriesDataPoint } from "@/lib/csv-parser";
 import { generateForecastAction, summarizeResultsAction } from "./actions";
 import type { ScenarioForecastInput, ScenarioForecastOutput } from '@/ai/flows/generate-scenario-forecast';
 import type { SummarizeScenarioResultsInput, SummarizeScenarioResultsOutput } from '@/ai/flows/summarize-scenario-results';
@@ -26,7 +26,7 @@ interface GeneratedScenario {
   id: string;
   name: string;
   priceChangeDescription: string;
-  forecastLength: string; // Keep as string to store the AI input "next X days"
+  forecastLength: string; 
   apiOutput: ScenarioForecastOutput;
 }
 
@@ -60,8 +60,9 @@ const ScenarioSagePage: React.FC = () => {
 
   const [scenarioName, setScenarioNameState] = React.useState<string>("Scenario 1");
   const [priceChangeDescription, setPriceChangeDescriptionState] = React.useState<string>("");
-  const [forecastLengthDays, setForecastLengthDaysState] = React.useState<number>(30); // Numeric state for slider
-  const [maxForecastLength, setMaxForecastLengthState] = React.useState<number>(100); // Default max if no data
+  const [forecastLengthInput, setForecastLengthInputState] = React.useState<number>(30); 
+  const [maxForecastLength, setMaxForecastLengthState] = React.useState<number>(100); 
+  const [detectedFrequency, setDetectedFrequencyState] = React.useState<'days' | 'months' | 'unknown'>('days');
   
   const [generatedScenarios, setGeneratedScenariosState] = React.useState<GeneratedScenario[]>([]);
   const [multiScenarioSummary, setMultiScenarioSummaryState] = React.useState<SummarizeScenarioResultsOutput | null>(null);
@@ -78,29 +79,32 @@ const ScenarioSagePage: React.FC = () => {
         const priceData = parseCsvForTimeSeries(historicalDataCsv, 'price', selectedItemId, selectedStoreId);
         setHistoricalPricePointsState(priceData);
 
-        // Update maxForecastLength based on the length of historical demand data (or price data, assuming they have similar lengths)
-        const newMax = demandData.length > 0 ? demandData.length : 100;
+        const frequency = detectTimeSeriesFrequency(demandData.length > 0 ? demandData : priceData);
+        setDetectedFrequencyState(frequency);
+
+        const newMax = demandData.length > 0 ? demandData.length : (priceData.length > 0 ? priceData.length : 100) ;
         setMaxForecastLengthState(newMax);
-        setForecastLengthDaysState(prev => Math.max(1, Math.min(prev, newMax)));
+        setForecastLengthInputState(prev => Math.max(1, Math.min(prev, newMax)));
 
 
       } catch (error) {
         toast({ title: "Error Parsing Filtered CSV", description: (error as Error).message, variant: "destructive" });
         setHistoricalDemandPointsState([]);
         setHistoricalPricePointsState([]);
-        setMaxForecastLengthState(100); // Reset to default
-        setForecastLengthDaysState(30); // Reset to default
+        setMaxForecastLengthState(100); 
+        setForecastLengthInputState(30); 
+        setDetectedFrequencyState('days');
       }
     } else {
-      // Reset states when CSV is cleared or not present
       setHistoricalDemandPointsState([]);
       setHistoricalPricePointsState([]);
       setMaxForecastLengthState(100);
-      setForecastLengthDaysState(30);
+      setForecastLengthInputState(30);
       setAvailableItemIdsState([]);
       setSelectedItemIdState(undefined);
       setAvailableStoreIdsState([]);
       setSelectedStoreIdState(undefined);
+      setDetectedFrequencyState('days');
     }
   }, [historicalDataCsv, selectedItemId, selectedStoreId, toast]);
 
@@ -113,11 +117,16 @@ const ScenarioSagePage: React.FC = () => {
     };
 
     function getScenarioColorTheme(index: number): { theme: Record<'light' | 'dark', string> } {
-      const baseHue = 45; 
-      const hueIncrement = 35; 
+      const baseHue = 190; // Start with a blue/teal hue
+      const hueIncrement = 40; // Increment hue for variety
+      const saturationLight = 70;
+      const lightnessLight = 50;
+      const saturationDark = 65;
+      const lightnessDark = 65;
+      
       const currentHue = (baseHue + index * hueIncrement) % 360;
-      const lightColor = `hsl(${currentHue}, 75%, 50%)`; 
-      const darkColor = `hsl(${currentHue}, 70%, 65%)`;  
+      const lightColor = `hsl(${currentHue}, ${saturationLight}%, ${lightnessLight}%)`; 
+      const darkColor = `hsl(${currentHue}, ${saturationDark}%, ${lightnessDark}%)`;  
       return { theme: { light: lightColor, dark: darkColor } };
     }
 
@@ -143,10 +152,11 @@ const ScenarioSagePage: React.FC = () => {
     const dataMap = new Map<string, MultiScenarioChartDataPoint>();
     const sortedHistoricalData = [...historicalDemandPoints].sort((a, b) => {
       try {
-        const dateA = new Date(a.date).getTime();
-        const dateB = new Date(b.date).getTime();
-        if (!isNaN(dateA) && !isNaN(dateB)) return dateA - dateB;
-      } catch (e) { /* ignore */ }
+        // Basic date string comparison as fallback, assuming YYYY-MM-DD or similar sortable format
+        const dateAVal = new Date(a.date).getTime();
+        const dateBVal = new Date(b.date).getTime();
+        if (!isNaN(dateAVal) && !isNaN(dateBVal)) return dateAVal - dateBVal;
+      } catch (e) { /* ignore date parsing errors for sort, rely on string compare */ }
       return a.date.localeCompare(b.date);
     });
 
@@ -168,7 +178,7 @@ const ScenarioSagePage: React.FC = () => {
            const connectingPointData = dataMap.get(lastHistoricalPoint.date) || { date: lastHistoricalPoint.date };
             dataMap.set(lastHistoricalPoint.date, {
                 ...connectingPointData,
-                historical: lastHistoricalPoint.value, 
+                // historical: lastHistoricalPoint.value, // Already set from historical loop
                 [scenario.id]: lastHistoricalPoint.value, 
             });
         }
@@ -180,9 +190,9 @@ const ScenarioSagePage: React.FC = () => {
     
     const finalSortedData = Array.from(dataMap.values()).sort((a, b) => {
       try {
-        const dateA = new Date(a.date).getTime();
-        const dateB = new Date(b.date).getTime();
-        if (!isNaN(dateA) && !isNaN(dateB)) return dateA - dateB;
+        const dateAVal = new Date(a.date).getTime();
+        const dateBVal = new Date(b.date).getTime();
+        if (!isNaN(dateAVal) && !isNaN(dateBVal)) return dateAVal - dateBVal;
       } catch (e) { /* ignore */ }
       return a.date.localeCompare(b.date);
     });
@@ -203,9 +213,9 @@ const ScenarioSagePage: React.FC = () => {
     const dataMap = new Map<string, MultiScenarioChartDataPoint>();
      const sortedHistoricalData = [...historicalPricePoints].sort((a, b) => {
       try {
-        const dateA = new Date(a.date).getTime();
-        const dateB = new Date(b.date).getTime();
-        if (!isNaN(dateA) && !isNaN(dateB)) return dateA - dateB;
+        const dateAVal = new Date(a.date).getTime();
+        const dateBVal = new Date(b.date).getTime();
+        if (!isNaN(dateAVal) && !isNaN(dateBVal)) return dateAVal - dateBVal;
       } catch (e) { /* ignore */ }
       return a.date.localeCompare(b.date);
     });
@@ -228,12 +238,11 @@ const ScenarioSagePage: React.FC = () => {
             const connectingPointData = dataMap.get(lastHistoricalPoint.date) || { date: lastHistoricalPoint.date };
             dataMap.set(lastHistoricalPoint.date, {
                 ...connectingPointData,
-                historical: lastHistoricalPoint.value,
+                // historical: lastHistoricalPoint.value, // Already set
                 [scenario.id]: lastHistoricalPoint.value, 
             });
         }
-      } catch (error)
-{
+      } catch (error) {
         console.error(`Error parsing forecast CSV for scenario ${scenario.name} (price):`, error);
         toast({ title: `Error Parsing Forecast (Price) for ${scenario.name}`, description: (error as Error).message, variant: "destructive" });
       }
@@ -241,9 +250,9 @@ const ScenarioSagePage: React.FC = () => {
 
     const finalSortedData = Array.from(dataMap.values()).sort((a, b) => {
       try {
-        const dateA = new Date(a.date).getTime();
-        const dateB = new Date(b.date).getTime();
-        if (!isNaN(dateA) && !isNaN(dateB)) return dateA - dateB;
+        const dateAVal = new Date(a.date).getTime();
+        const dateBVal = new Date(b.date).getTime();
+        if (!isNaN(dateAVal) && !isNaN(dateBVal)) return dateAVal - dateBVal;
       } catch (e) { /* ignore */ }
       return a.date.localeCompare(b.date);
     });
@@ -278,32 +287,27 @@ const ScenarioSagePage: React.FC = () => {
           setAvailableStoreIdsState(stores);
           setSelectedStoreIdState(undefined); 
           
-          // Initial parse for demand and price also updates maxForecastLength via useEffect
           const initialDemandData = parseCsvForTimeSeries(csvContent, 'demand', undefined, undefined);
            if (initialDemandData.length === 0 && csvContent.trim() !== "") {
-            toast({ title: "Warning (Demand Data)", description: "CSV parsed, but no 'timestamp' or 'demand' data found.", variant: "destructive" });
+            toast({ title: "Warning (Demand Data)", description: "CSV parsed, but no 'timestamp' or 'demand' data found, or data could not be filtered as expected.", variant: "destructive" });
           }
-          // setHistoricalDemandPointsState(initialDemandData); // Handled by useEffect
-
+          
           const initialPriceData = parseCsvForTimeSeries(csvContent, 'price', undefined, undefined);
            if (initialPriceData.length === 0 && csvContent.trim() !== "") {
-            toast({ title: "Warning (Price Data)", description: "CSV parsed, but no 'timestamp' or 'price' data found.", variant: "destructive" });
+            toast({ title: "Warning (Price Data)", description: "CSV parsed, but no 'timestamp' or 'price' data found, or data could not be filtered as expected.", variant: "destructive" });
           }
-          // setHistoricalPricePointsState(initialPriceData); // Handled by useEffect
-
+          
+          // The useEffect for historicalDataCsv will handle setting historical points and detecting frequency.
 
           setGeneratedScenariosState([]); 
           setMultiScenarioSummaryState(null);
           setScenarioNameState(`Scenario 1`);
 
-
         } catch (error) {
            toast({ title: "Error Processing CSV", description: (error as Error).message, variant: "destructive" });
-            setHistoricalDataCsvState(null); // Clear CSV if processing fails
+            setHistoricalDataCsvState(null); 
             setAvailableItemIdsState([]);
             setAvailableStoreIdsState([]);
-            // setHistoricalDemandPointsState([]); // Handled by useEffect based on historicalDataCsv
-            // setHistoricalPricePointsState([]); // Handled by useEffect
         }
       };
       reader.readAsText(file);
@@ -323,15 +327,16 @@ const ScenarioSagePage: React.FC = () => {
       toast({ title: "Error", description: "Please enter a price change scenario description.", variant: "destructive" });
       return;
     }
-    if (forecastLengthDays < 1) {
-      toast({ title: "Error", description: "Forecast length must be at least 1 day.", variant: "destructive" });
+    if (forecastLengthInput < 1) {
+      toast({ title: "Error", description: "Forecast length must be at least 1.", variant: "destructive" });
       return;
     }
 
     setIsGeneratingForecastState(true);
     setMultiScenarioSummaryState(null); 
 
-    const formattedForecastLength = `next ${forecastLengthDays} days`;
+    const freqUnit = detectedFrequency === 'unknown' ? 'periods' : detectedFrequency;
+    const formattedForecastLength = `next ${forecastLengthInput} ${freqUnit}`;
 
     const currentInputs: ScenarioForecastInput = {
       historicalData: historicalDataCsv, 
@@ -353,13 +358,12 @@ const ScenarioSagePage: React.FC = () => {
           id: `scenario${generatedScenarios.length + 1}`, 
           name: scenarioName,
           priceChangeDescription: priceChangeDescription,
-          forecastLength: formattedForecastLength, // Store the string version used for AI
+          forecastLength: formattedForecastLength, 
           apiOutput: result,
         };
         setGeneratedScenariosState(prevScenarios => [...prevScenarios, newGeneratedScenario]);
         setScenarioNameState(`Scenario ${generatedScenarios.length + 2}`); 
         setPriceChangeDescriptionState(""); 
-
 
         toast({ title: "Success", description: `Forecast for "${newGeneratedScenario.name}" generated successfully!` });
 
@@ -481,16 +485,16 @@ const ScenarioSagePage: React.FC = () => {
               <div>
                 <Label htmlFor="forecast-length-slider" className="flex items-center">
                   <CalendarDays className="mr-2 h-4 w-4 text-muted-foreground" />
-                  Forecast Length: {forecastLengthDays} days
+                  Forecast Length: {forecastLengthInput} {detectedFrequency === 'unknown' ? 'periods' : detectedFrequency}
                 </Label>
                 <Slider
                   id="forecast-length-slider"
                   min={1}
                   max={maxForecastLength}
                   step={1}
-                  value={[forecastLengthDays]}
-                  onValueChange={(value) => setForecastLengthDaysState(value[0])}
-                  disabled={!historicalDataCsv || historicalDemandPoints.length === 0}
+                  value={[forecastLengthInput]}
+                  onValueChange={(value) => setForecastLengthInputState(value[0])}
+                  disabled={!historicalDataCsv || (historicalDemandPoints.length === 0 && historicalPricePoints.length === 0)}
                   className="mt-2"
                 />
               </div>
