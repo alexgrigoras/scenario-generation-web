@@ -27,11 +27,14 @@ body {
     --border: 0 0% 89.8%; /* A shade of gray for borders */
     --input: 0 0% 89.8%;
     --ring: 187 100% 38%; /* Teal for focus */
-    --chart-1: 235 63% 50%; /* Adjusted chart colors */
-    --chart-2: 187 100% 45%;
-    --chart-3: 235 40% 60%;
-    --chart-4: 187 70% 55%;
-    --chart-5: 235 50% 70%;
+    
+    /* More distinct chart colors for light mode */
+    --chart-1: 235 63% 50%;  /* Primary Blue - Historical Data */
+    --chart-2: 130 50% 50%;  /* Green - Scenario 1 */
+    --chart-3: 30 100% 50%;  /* Orange - Scenario 2 */
+    --chart-4: 280 50% 55%;  /* Purple - Scenario 3 */
+    --chart-5: 0 70% 50%;    /* Red - Scenario 4 */
+
     --radius: 0.5rem;
     --sidebar-background: 0 0% 98%;
     --sidebar-foreground: 240 5.3% 26.1%;
@@ -62,11 +65,14 @@ body {
     --border: 235 30% 25%;
     --input: 235 30% 25%;
     --ring: 235 63% 50%; /* Brighter blue for focus */
-    --chart-1: 187 100% 50%; /* Adjusted chart colors for dark mode */
-    --chart-2: 235 63% 60%;
-    --chart-3: 187 80% 40%;
-    --chart-4: 235 50% 70%;
-    --chart-5: 187 60% 60%;
+
+    /* More distinct chart colors for dark mode */
+    --chart-1: 187 100% 50%; /* Teal - Historical Data (matches dark mode primary) */
+    --chart-2: 130 60% 65%;  /* Brighter Green - Scenario 1 */
+    --chart-3: 30 100% 60%;  /* Brighter Orange - Scenario 2 */
+    --chart-4: 280 60% 70%;  /* Brighter Purple - Scenario 3 */
+    --chart-5: 0 80% 65%;    /* Brighter Red - Scenario 4 */
+    
     --sidebar-background: 240 5.9% 10%;
     --sidebar-foreground: 240 4.8% 95.9%;
     --sidebar-primary: 224.3 76.3% 48%;
