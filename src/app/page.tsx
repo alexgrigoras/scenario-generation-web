@@ -72,13 +72,6 @@ const ScenarioSagePage: React.FC = () => {
   const [isGeneratingForecast, setIsGeneratingForecastState] = React.useState(false);
   const [isSummarizing, setIsSummarizingState] = React.useState(false);
 
-  const chartColors = React.useMemo(() => [
-    "hsl(var(--chart-2))",
-    "hsl(var(--chart-3))",
-    "hsl(var(--chart-4))",
-    "hsl(var(--chart-5))",
-  ], []);
-
   // Effect to parse historical data when CSV or filters change
   React.useEffect(() => {
     if (historicalDataCsv) {
@@ -105,16 +98,35 @@ const ScenarioSagePage: React.FC = () => {
       historical: { label: "Historical Price", color: "hsl(var(--chart-1))" },
     };
 
+    // Helper function for scenario colors, providing theme-specific HSL strings
+    function getScenarioColorTheme(index: number): { theme: Record<'light' | 'dark', string> } {
+      const baseHue = 45; // Start from a hue like orange/yellow, distinct from default chart-1
+      const hueIncrement = 35; // Increment for hue variation, aiming for good visual separation
+      const currentHue = (baseHue + index * hueIncrement) % 360;
+
+      // Adjusted saturation and lightness for better visibility and distinction
+      const lightColor = `hsl(${currentHue}, 75%, 50%)`; 
+      const darkColor = `hsl(${currentHue}, 70%, 65%)`;  
+
+      return { theme: { light: lightColor, dark: darkColor } };
+    }
+
     generatedScenarios.forEach((scenario, index) => {
-      const color = chartColors[index % chartColors.length];
-      newDemandChartConfig[scenario.id] = { label: `${scenario.name} (Demand)`, color: color };
-      newPriceChartConfig[scenario.id] = { label: `${scenario.name} (Price)`, color: color };
+      const scenarioColorTheme = getScenarioColorTheme(index);
+      newDemandChartConfig[scenario.id] = { 
+        label: `${scenario.name} (Demand)`, 
+        ...scenarioColorTheme 
+      };
+      newPriceChartConfig[scenario.id] = { 
+        label: `${scenario.name} (Price)`, 
+        ...scenarioColorTheme 
+      };
     });
 
     setDemandChartConfigState(newDemandChartConfig);
     setPriceChartConfigState(newPriceChartConfig);
 
-  }, [generatedScenarios, chartColors]);
+  }, [generatedScenarios]);
 
 
   // Effect for Combined Demand Data Chart (historical + all scenarios)
