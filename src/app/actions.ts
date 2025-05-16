@@ -5,7 +5,7 @@ import { generateScenarioForecast, type ScenarioForecastInput, type ScenarioFore
 import { summarizeScenarioResults, type SummarizeScenarioResultsInput, type SummarizeScenarioResultsOutput } from "@/ai/flows/summarize-scenario-results";
 
 export async function generateForecastAction(
-  input: ScenarioForecastInput
+  input: ScenarioForecastInput // This type now includes customFuturePricesCsv?: string from the flow definition
 ): Promise<ScenarioForecastOutput | { error: string }> {
   try {
     // Basic validation
@@ -18,6 +18,10 @@ export async function generateForecastAction(
     if (!input.forecastLength || input.forecastLength.trim() === "") {
       return { error: "Forecast length cannot be empty." };
     }
+    if (input.customFuturePricesCsv !== undefined && input.customFuturePricesCsv.trim() === "") {
+        return { error: "Custom future prices CSV was provided but is empty."};
+    }
+
     const result = await generateScenarioForecast(input);
     return result;
   } catch (e) {

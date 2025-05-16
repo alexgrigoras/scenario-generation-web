@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, type FC, type ChangeEvent } from 'react';
+import * as React from 'react';
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,8 +10,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
-import { UploadCloud, Lightbulb, LineChart, FileText, Loader2, CalendarDays, DollarSign, Filter, ListChecks, History } from "lucide-react";
+import { UploadCloud, Lightbulb, LineChart, FileText, Loader2, CalendarDays, DollarSign, Filter, ListChecks, History, Edit3 } from "lucide-react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+
 
 import Logo from "@/components/logo";
 import TimeSeriesChart from "@/components/time-series-chart";
@@ -28,12 +30,18 @@ interface GeneratedScenario {
   priceChangeDescription: string;
   forecastLength: string; 
   apiOutput: ScenarioForecastOutput;
+  isCustomPriceScenario?: boolean;
 }
 
 interface MultiScenarioChartDataPoint {
   date: string;
   historical?: number | null;
   [scenarioIdKey: string]: number | string | null | undefined; 
+}
+
+interface EditablePricePoint {
+  date: string;
+  price: number;
 }
 
 
@@ -69,6 +77,11 @@ const ScenarioSagePage: React.FC = () => {
 
   const [isGeneratingForecast, setIsGeneratingForecastState] = React.useState(false);
   const [isSummarizing, setIsSummarizingState] = React.useState(false);
+
+  const [editingScenario, setEditingScenarioState] = React.useState<GeneratedScenario | null>(null);
+  const [editablePrices, setEditablePricesState] = React.useState<EditablePricePoint[]>([]);
+  const [isReForecasting, setIsReForecastingState] = React.useState(false);
+
 
   React.useEffect(() => {
     if (historicalDataCsv) {
@@ -117,8 +130,8 @@ const ScenarioSagePage: React.FC = () => {
     };
 
     function getScenarioColorTheme(index: number): { theme: Record<'light' | 'dark', string> } {
-      const baseHue = 190; // Start with a blue/teal hue
-      const hueIncrement = 40; // Increment hue for variety
+      const baseHue = 190; 
+      const hueIncrement = 40; 
       const saturationLight = 70;
       const lightnessLight = 50;
       const saturationDark = 65;
@@ -132,12 +145,13 @@ const ScenarioSagePage: React.FC = () => {
 
     generatedScenarios.forEach((scenario, index) => {
       const scenarioColorTheme = getScenarioColorTheme(index);
+      const labelSuffix = scenario.isCustomPriceScenario ? " (Custom Prices)" : "";
       newDemandChartConfig[scenario.id] = { 
-        label: `${scenario.name} (Demand)`, 
+        label: `${scenario.name}${labelSuffix} (Demand)`, 
         ...scenarioColorTheme 
       };
       newPriceChartConfig[scenario.id] = { 
-        label: `${scenario.name} (Price)`, 
+        label: `${scenario.name}${labelSuffix} (Price)`, 
         ...scenarioColorTheme 
       };
     });
@@ -152,7 +166,6 @@ const ScenarioSagePage: React.FC = () => {
     const dataMap = new Map<string, MultiScenarioChartDataPoint>();
     const sortedHistoricalData = [...historicalDemandPoints].sort((a, b) => {
       try {
-        // Basic date string comparison as fallback, assuming YYYY-MM-DD or similar sortable format
         const dateAVal = new Date(a.date).getTime();
         const dateBVal = new Date(b.date).getTime();
         if (!isNaN(dateAVal) && !isNaN(dateBVal)) return dateAVal - dateBVal;
@@ -178,7 +191,6 @@ const ScenarioSagePage: React.FC = () => {
            const connectingPointData = dataMap.get(lastHistoricalPoint.date) || { date: lastHistoricalPoint.date };
             dataMap.set(lastHistoricalPoint.date, {
                 ...connectingPointData,
-                // historical: lastHistoricalPoint.value, // Already set from historical loop
                 [scenario.id]: lastHistoricalPoint.value, 
             });
         }
@@ -238,7 +250,6 @@ const ScenarioSagePage: React.FC = () => {
             const connectingPointData = dataMap.get(lastHistoricalPoint.date) || { date: lastHistoricalPoint.date };
             dataMap.set(lastHistoricalPoint.date, {
                 ...connectingPointData,
-                // historical: lastHistoricalPoint.value, // Already set
                 [scenario.id]: lastHistoricalPoint.value, 
             });
         }
@@ -297,8 +308,6 @@ const ScenarioSagePage: React.FC = () => {
             toast({ title: "Warning (Price Data)", description: "CSV parsed, but no 'timestamp' or 'price' data found, or data could not be filtered as expected.", variant: "destructive" });
           }
           
-          // The useEffect for historicalDataCsv will handle setting historical points and detecting frequency.
-
           setGeneratedScenariosState([]); 
           setMultiScenarioSummaryState(null);
           setScenarioNameState(`Scenario 1`);
@@ -396,6 +405,75 @@ const ScenarioSagePage: React.FC = () => {
       toast({ title: "Success", description: "All generated scenarios have been summarized." });
     }
     setIsSummarizingState(false);
+  };
+
+  // Helper to convert EditablePricePoint array to CSV string (timestamp,price)
+  const pricePointsToCsvString = (points: EditablePricePoint[]): string => {
+    const header = "timestamp,price";
+    const rows = points.map(p => `${p.date},${p.price}`);
+    return [header, ...rows].join('\n');
+  };
+
+  const handleOpenEditPriceDialog = (scenarioToEdit: GeneratedScenario) => {
+    try {
+      const priceForecast = parseCsvForTimeSeries(scenarioToEdit.apiOutput.forecastedData, 'price');
+      setEditablePricesState(priceForecast.map(p => ({ date: p.date, price: p.value })));
+      setEditingScenarioState(scenarioToEdit);
+    } catch (error) {
+      toast({ title: "Error preparing prices for editing", description: (error as Error).message, variant: "destructive" });
+    }
+  };
+
+  const handlePriceInputChange = (index: number, newPrice: string) => {
+    const updatedPrices = [...editablePrices];
+    const priceVal = parseFloat(newPrice);
+    // Allow empty string for temporary clearing, but it will be NaN
+    if (newPrice === "" || !isNaN(priceVal)) {
+      updatedPrices[index].price = newPrice === "" ? NaN : priceVal; // Store NaN if empty to indicate invalid
+      setEditablePricesState(updatedPrices);
+    }
+  };
+  
+  const handleSaveChangesAndReforecast = async () => {
+    if (!editingScenario || editablePrices.length === 0) {
+      toast({ title: "Error", description: "No scenario or prices to re-forecast.", variant: "destructive" });
+      return;
+    }
+
+    // Validate that all prices are valid numbers
+    const hasInvalidPrice = editablePrices.some(p => isNaN(p.price));
+    if (hasInvalidPrice) {
+        toast({ title: "Invalid Prices", description: "Please ensure all price fields contain valid numbers.", variant: "destructive" });
+        return;
+    }
+
+
+    setIsReForecastingState(true);
+    const customPricesCsv = pricePointsToCsvString(editablePrices);
+  
+    const reforecastInput: ScenarioForecastInput & { customFuturePricesCsv?: string } = {
+      historicalData: historicalDataCsv!, 
+      priceChangeScenario: editingScenario.priceChangeDescription, 
+      forecastLength: editingScenario.forecastLength, 
+      customFuturePricesCsv: customPricesCsv,
+    };
+  
+    const result = await generateForecastAction(reforecastInput);
+    setIsReForecastingState(false);
+  
+    if ("error" in result) {
+      toast({ title: "Re-forecast Failed", description: result.error, variant: "destructive" });
+    } else {
+      setGeneratedScenariosState(prevScenarios =>
+        prevScenarios.map(sc =>
+          sc.id === editingScenario.id
+            ? { ...sc, apiOutput: result, isCustomPriceScenario: true, name: `${sc.name.replace(/ \(Custom Prices\)?$/, "")} (Custom Prices)` } 
+            : sc
+        )
+      );
+      toast({ title: "Success", description: `Demand re-forecasted for "${editingScenario.name}" with custom prices.` });
+      setEditingScenarioState(null); 
+    }
   };
 
 
@@ -537,7 +615,7 @@ const ScenarioSagePage: React.FC = () => {
             </CardContent>
           </Card>
 
-          {generatedScenarios.length > 0 && (
+          {generatedScenarios.length > 0 && generatedScenarios[generatedScenarios.length-1] && (
             <Card className="shadow-lg">
               <CardHeader>
                 <CardTitle className="flex items-center"><FileText className="mr-2 h-6 w-6 text-primary" /> Latest Forecast Summary</CardTitle>
@@ -552,7 +630,7 @@ const ScenarioSagePage: React.FC = () => {
           <Card className="shadow-lg">
             <CardHeader>
               <CardTitle className="flex items-center"><History className="mr-2 h-6 w-6 text-primary" /> Scenario History & Bulk Summary</CardTitle>
-              <CardDescription>Review past scenarios and generate a collective summary.</CardDescription>
+              <CardDescription>Review past scenarios and generate a collective summary. Edit scenario prices if needed.</CardDescription>
             </CardHeader>
             <CardContent>
               {generatedScenarios.length === 0 ? (
@@ -569,6 +647,9 @@ const ScenarioSagePage: React.FC = () => {
                         <p><strong>Forecast Length:</strong> {scenario.forecastLength}</p>
                         <p className="font-semibold mt-1">AI Summary:</p>
                         <p className="whitespace-pre-wrap text-muted-foreground bg-muted/50 p-2 rounded-md">{scenario.apiOutput.summary || "No summary provided."}</p>
+                        <Button variant="outline" size="sm" onClick={() => handleOpenEditPriceDialog(scenario)} className="mt-2 text-xs">
+                           <Edit3 className="mr-1 h-3 w-3" /> Edit Prices & Re-forecast Demand
+                        </Button>
                       </AccordionContent>
                     </AccordionItem>
                   ))}
@@ -615,6 +696,45 @@ const ScenarioSagePage: React.FC = () => {
           )}
         </div>
       </main>
+
+      {editingScenario && (
+        <Dialog open={!!editingScenario} onOpenChange={(isOpen) => { if(!isOpen) setEditingScenarioState(null); }}>
+          <DialogContent className="sm:max-w-[600px]">
+            <DialogHeader>
+              <DialogTitle>Edit Prices for "{editingScenario.name}"</DialogTitle>
+              <DialogDescription>
+                Modify the future prices below. Demand will be re-forecasted based on these prices.
+                Original AI forecast length: {editingScenario.forecastLength}.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="grid gap-2 py-4 max-h-[400px] overflow-y-auto pr-2">
+              {editablePrices.map((point, index) => (
+                <div key={point.date} className="grid grid-cols-3 items-center gap-4">
+                  <Label htmlFor={`price-${index}`} className="text-right col-span-1 text-xs">
+                    {point.date}
+                  </Label>
+                  <Input
+                    id={`price-${index}`}
+                    type="number"
+                    value={isNaN(point.price) ? "" : point.price} // Show empty for NaN
+                    onChange={(e) => handlePriceInputChange(index, e.target.value)}
+                    className="col-span-2 h-8 text-sm"
+                    step="0.01"
+                  />
+                </div>
+              ))}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setEditingScenarioState(null)}>Cancel</Button>
+              <Button onClick={handleSaveChangesAndReforecast} disabled={isReForecasting}>
+                {isReForecasting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Edit3 className="mr-2 h-4 w-4" />}
+                Re-forecast Demand
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
        <footer className="w-full max-w-6xl mt-12 text-center text-sm text-muted-foreground">
         <p>&copy; {new Date().getFullYear()} ScenarioSage. Powered by Firebase Studio.</p>
       </footer>
