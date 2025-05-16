@@ -1,6 +1,7 @@
 
 "use client";
 
+import type React from 'react';
 import { useState, useEffect, type FC, type ChangeEvent } from 'react';
 
 import { Button } from "@/components/ui/button";
@@ -370,7 +371,6 @@ const ScenarioSagePage: FC = () => {
                 <p className="text-sm text-muted-foreground whitespace-pre-wrap">{forecastOutput.summary}</p>
               </CardContent>
             </Card>
-          </Card>
           )}
 
           {scenarioSummary && (
