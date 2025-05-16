@@ -1,54 +1,87 @@
 
 "use client";
 
-import type React from 'react';
-import { useState, useEffect, type FC, type ChangeEvent } from 'react';
+import * as React from 'react';
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { UploadCloud, Lightbulb, LineChart, FileText, Loader2, CalendarDays, DollarSign } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { UploadCloud, Lightbulb, LineChart, FileText, Loader2, CalendarDays, DollarSign, Filter } from "lucide-react";
 
 import Logo from "@/components/logo";
 import TimeSeriesChart, { type CombinedDataPoint } from "@/components/time-series-chart";
 import { useToast } from "@/hooks/use-toast";
-import { parseCsvForTimeSeries, type TimeSeriesDataPoint } from "@/lib/csv-parser";
+import { parseCsvForTimeSeries, extractUniqueColumnValues, type TimeSeriesDataPoint } from "@/lib/csv-parser";
 import { generateForecastAction, summarizeResultsAction } from "./actions";
 import type { ScenarioForecastOutput } from '@/ai/flows/generate-scenario-forecast';
 import type { SummarizeScenarioResultsInput, SummarizeScenarioResultsOutput } from '@/ai/flows/summarize-scenario-results';
 
-const ScenarioSagePage: FC = () => {
+const ScenarioSagePage: React.FC = () => {
   const { toast } = useToast();
 
-  const [historicalDataCsv, setHistoricalDataCsvState] = useState<string | null>(null);
-  const [fileName, setFileNameState] = useState<string | null>(null);
+  const [historicalDataCsv, setHistoricalDataCsvState] = React.useState<string | null>(null);
+  const [fileName, setFileNameState] = React.useState<string | null>(null);
+
+  // Item and Store Filters
+  const [availableItemIds, setAvailableItemIdsState] = React.useState<string[]>([]);
+  const [selectedItemId, setSelectedItemIdState] = React.useState<string | undefined>(undefined);
+  const [availableStoreIds, setAvailableStoreIdsState] = React.useState<string[]>([]);
+  const [selectedStoreId, setSelectedStoreIdState] = React.useState<string | undefined>(undefined);
 
   // Demand Data
-  const [historicalDemandPoints, setHistoricalDemandPointsState] = useState<TimeSeriesDataPoint[]>([]);
-  const [forecastedDemandPoints, setForecastedDemandPointsState] = useState<TimeSeriesDataPoint[]>([]);
-  const [combinedDemandChartData, setCombinedDemandChartDataState] = useState<CombinedDataPoint[]>([]);
-  const [demandChartTitle, setDemandChartTitleState] = useState<string>("Demand Data Overview");
+  const [historicalDemandPoints, setHistoricalDemandPointsState] = React.useState<TimeSeriesDataPoint[]>([]);
+  const [forecastedDemandPoints, setForecastedDemandPointsState] = React.useState<TimeSeriesDataPoint[]>([]);
+  const [combinedDemandChartData, setCombinedDemandChartDataState] = React.useState<CombinedDataPoint[]>([]);
+  const [demandChartTitle, setDemandChartTitleState] = React.useState<string>("Demand Data Overview");
 
   // Price Data
-  const [historicalPricePoints, setHistoricalPricePointsState] = useState<TimeSeriesDataPoint[]>([]);
-  const [forecastedPricePoints, setForecastedPricePointsState] = useState<TimeSeriesDataPoint[]>([]);
-  const [combinedPriceChartData, setCombinedPriceChartDataState] = useState<CombinedDataPoint[]>([]);
-  const [priceChartTitle, setPriceChartTitleState] = useState<string>("Price Data Overview");
+  const [historicalPricePoints, setHistoricalPricePointsState] = React.useState<TimeSeriesDataPoint[]>([]);
+  const [forecastedPricePoints, setForecastedPricePointsState] = React.useState<TimeSeriesDataPoint[]>([]);
+  const [combinedPriceChartData, setCombinedPriceChartDataState] = React.useState<CombinedDataPoint[]>([]);
+  const [priceChartTitle, setPriceChartTitleState] = React.useState<string>("Price Data Overview");
 
-  const [scenarioName, setScenarioNameState] = useState<string>("Default Scenario");
-  const [priceChangeDescription, setPriceChangeDescriptionState] = useState<string>("");
-  const [forecastLength, setForecastLengthState] = useState<string>("next 30 periods");
+  const [scenarioName, setScenarioNameState] = React.useState<string>("Default Scenario");
+  const [priceChangeDescription, setPriceChangeDescriptionState] = React.useState<string>("");
+  const [forecastLength, setForecastLengthState] = React.useState<string>("next 30 periods");
 
-  const [forecastOutput, setForecastOutputState] = useState<ScenarioForecastOutput | null>(null);
-  const [scenarioSummary, setScenarioSummaryState] = useState<SummarizeScenarioResultsOutput | null>(null);
+  const [forecastOutput, setForecastOutputState] = React.useState<ScenarioForecastOutput | null>(null);
+  const [scenarioSummary, setScenarioSummaryState] = React.useState<SummarizeScenarioResultsOutput | null>(null);
 
-  const [isGeneratingForecast, setIsGeneratingForecastState] = useState(false);
-  const [isSummarizing, setIsSummarizingState] = useState(false);
+  const [isGeneratingForecast, setIsGeneratingForecastState] = React.useState(false);
+  const [isSummarizing, setIsSummarizingState] = React.useState(false);
 
-  // Effect for Demand Data
-  useEffect(() => {
+  // Effect to parse historical data when CSV or filters change
+  React.useEffect(() => {
+    if (historicalDataCsv) {
+      try {
+        const demandData = parseCsvForTimeSeries(historicalDataCsv, 'demand', selectedItemId, selectedStoreId);
+        setHistoricalDemandPointsState(demandData);
+
+        const priceData = parseCsvForTimeSeries(historicalDataCsv, 'price', selectedItemId, selectedStoreId);
+        setHistoricalPricePointsState(priceData);
+
+        // Clear forecast when historical filters change, as forecast is for the whole dataset
+        // but only if a filter is active, otherwise we keep the forecast to compare against different filtered views
+        if(selectedItemId || selectedStoreId){
+          setForecastedDemandPointsState([]);
+          setForecastedPricePointsState([]);
+          // setForecastOutputState(null); // Keep output summary
+        }
+
+      } catch (error) {
+        toast({ title: "Error Parsing Filtered CSV", description: (error as Error).message, variant: "destructive" });
+        setHistoricalDemandPointsState([]);
+        setHistoricalPricePointsState([]);
+      }
+    }
+  }, [historicalDataCsv, selectedItemId, selectedStoreId, toast]);
+
+
+  // Effect for Demand Data Chart
+  React.useEffect(() => {
     const dataMap = new Map<string, CombinedDataPoint>();
     const sortedHistoricalData = [...historicalDemandPoints].sort((a, b) => {
       try {
@@ -93,17 +126,19 @@ const ScenarioSagePage: FC = () => {
     
     setCombinedDemandChartDataState(finalSortedData);
 
-    if (forecastedDemandPoints.length > 0 && historicalDemandPoints.length > 0) {
-      setDemandChartTitleState("Demand Overview: Historical & Forecasted");
-    } else if (historicalDemandPoints.length > 0) {
-      setDemandChartTitleState("Historical Demand Data");
-    } else {
-      setDemandChartTitleState("Demand Data Overview");
-    }
-  }, [historicalDemandPoints, forecastedDemandPoints]);
+    let title = "Demand Data Overview";
+    if (historicalDemandPoints.length > 0 && forecastedDemandPoints.length === 0) title = "Historical Demand Data";
+    else if (forecastedDemandPoints.length > 0 && historicalDemandPoints.length > 0) title = "Demand Overview: Historical & Forecasted";
+    else if (forecastedDemandPoints.length > 0 && historicalDemandPoints.length === 0) title = "Forecasted Demand Data";
+    
+    if (selectedItemId) title += ` (Item: ${selectedItemId})`;
+    if (selectedStoreId) title += ` (Store: ${selectedStoreId})`;
+    setDemandChartTitleState(title);
 
-  // Effect for Price Data
-  useEffect(() => {
+  }, [historicalDemandPoints, forecastedDemandPoints, selectedItemId, selectedStoreId]);
+
+  // Effect for Price Data Chart
+  React.useEffect(() => {
     const dataMap = new Map<string, CombinedDataPoint>();
     const sortedHistoricalData = [...historicalPricePoints].sort((a, b) => {
       try {
@@ -147,45 +182,60 @@ const ScenarioSagePage: FC = () => {
     });
     
     setCombinedPriceChartDataState(finalSortedData);
+    
+    let title = "Price Data Overview";
+    if (historicalPricePoints.length > 0 && forecastedPricePoints.length === 0) title = "Historical Price Data";
+    else if (forecastedPricePoints.length > 0 && historicalPricePoints.length > 0) title = "Price Overview: Historical & Forecasted";
+    else if (forecastedPricePoints.length > 0 && historicalPricePoints.length === 0) title = "Forecasted Price Data";
 
-    if (forecastedPricePoints.length > 0 && historicalPricePoints.length > 0) {
-      setPriceChartTitleState("Price Overview: Historical & Forecasted");
-    } else if (historicalPricePoints.length > 0) {
-      setPriceChartTitleState("Historical Price Data");
-    } else {
-      setPriceChartTitleState("Price Data Overview");
-    }
-  }, [historicalPricePoints, forecastedPricePoints]);
+    if (selectedItemId) title += ` (Item: ${selectedItemId})`;
+    if (selectedStoreId) title += ` (Store: ${selectedStoreId})`;
+    setPriceChartTitleState(title);
 
-  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+  }, [historicalPricePoints, forecastedPricePoints, selectedItemId, selectedStoreId]);
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       setFileNameState(file.name);
       const reader = new FileReader();
       reader.onload = (e) => {
         const csvContent = e.target?.result as string;
-        setHistoricalDataCsvState(csvContent);
+        setHistoricalDataCsvState(csvContent); 
+
         try {
-          const parsedDemandData = parseCsvForTimeSeries(csvContent, 'demand');
-          if (parsedDemandData.length === 0 && csvContent.trim() !== "") {
-            toast({ title: "Warning (Demand)", description: "CSV parsed, but no valid 'timestamp' or 'demand' data found. Check headers and content.", variant: "destructive" });
-          }
-          setHistoricalDemandPointsState(parsedDemandData);
+          const items = extractUniqueColumnValues(csvContent, 'item_id');
+          setAvailableItemIdsState(items);
+          setSelectedItemIdState(undefined); // Default to all items
+
+          const stores = extractUniqueColumnValues(csvContent, 'store_id');
+          setAvailableStoreIdsState(stores);
+          setSelectedStoreIdState(undefined); // Default to all stores
           
-          const parsedPriceData = parseCsvForTimeSeries(csvContent, 'price');
-           if (parsedPriceData.length === 0 && csvContent.trim() !== "") {
-            toast({ title: "Warning (Price)", description: "CSV parsed, but no valid 'timestamp' or 'price' data found. Check headers and content.", variant: "destructive" });
+          // Initial parse (useEffect will handle further parsing based on filters)
+          const initialDemandData = parseCsvForTimeSeries(csvContent, 'demand', undefined, undefined);
+           if (initialDemandData.length === 0 && csvContent.trim() !== "") {
+            toast({ title: "Warning (Demand Data)", description: "CSV parsed, but no 'timestamp' or 'demand' data found. Check headers and content.", variant: "destructive" });
           }
-          setHistoricalPricePointsState(parsedPriceData);
+          setHistoricalDemandPointsState(initialDemandData);
+          
+          const initialPriceData = parseCsvForTimeSeries(csvContent, 'price', undefined, undefined);
+           if (initialPriceData.length === 0 && csvContent.trim() !== "") {
+            toast({ title: "Warning (Price Data)", description: "CSV parsed, but no 'timestamp' or 'price' data found. Check headers and content.", variant: "destructive" });
+          }
+          setHistoricalPricePointsState(initialPriceData);
 
           setForecastedDemandPointsState([]);
           setForecastedPricePointsState([]);
           setForecastOutputState(null);
           setScenarioSummaryState(null);
+
         } catch (error) {
-          toast({ title: "Error Parsing CSV", description: (error as Error).message, variant: "destructive" });
-          setHistoricalDemandPointsState([]);
-          setHistoricalPricePointsState([]);
+           toast({ title: "Error Processing CSV", description: (error as Error).message, variant: "destructive" });
+            setAvailableItemIdsState([]);
+            setAvailableStoreIdsState([]);
+            setHistoricalDemandPointsState([]);
+            setHistoricalPricePointsState([]);
         }
       };
       reader.readAsText(file);
@@ -208,11 +258,19 @@ const ScenarioSagePage: FC = () => {
 
     setIsGeneratingForecastState(true);
     setForecastOutputState(null);
+    // When generating a new forecast, it's based on the *entire* dataset.
+    // So, we should clear any existing item/store specific forecasted points.
     setForecastedDemandPointsState([]);
     setForecastedPricePointsState([]);
 
+
+    // Reset historical data to unfiltered for forecast generation context if needed by AI.
+    // Currently, the AI takes the full CSV, so local filtering doesn't affect its input.
+    // However, ensure the historical display reflects the current filter.
+    // The useEffect for historical data already handles filtering for display.
+
     const result = await generateForecastAction({
-      historicalData: historicalDataCsv,
+      historicalData: historicalDataCsv, 
       priceChangeScenario: priceChangeDescription,
       forecastLength: forecastLength
     });
@@ -222,6 +280,8 @@ const ScenarioSagePage: FC = () => {
     } else {
       setForecastOutputState(result);
       try {
+        // The AI's forecastedData CSV should contain 'timestamp', 'price', and 'demand'.
+        // This forecast is for the *entire* dataset, not filtered by item/store.
         const parsedForecastDemand = parseCsvForTimeSeries(result.forecastedData, 'demand');
          if (parsedForecastDemand.length === 0 && result.forecastedData.trim() !== "") {
             toast({ title: "Warning (Forecast Demand)", description: "Forecast CSV parsed, but no valid demand data points found. Expected columns: 'timestamp', 'demand'.", variant: "destructive" });
@@ -252,8 +312,8 @@ const ScenarioSagePage: FC = () => {
       scenarios: [
         {
           scenarioName: scenarioName,
-          projectedRevenueChange: 0, 
-          potentialStockoutRisk: "N/A", 
+          projectedRevenueChange: 0, // Placeholder, AI summary focuses on qualitative text
+          potentialStockoutRisk: "N/A", // Placeholder
           details: forecastDetails,
         },
       ],
@@ -292,6 +352,39 @@ const ScenarioSagePage: FC = () => {
                 <Label htmlFor="csv-upload">CSV File</Label>
                 <Input id="csv-upload" type="file" accept=".csv" onChange={handleFileChange} className="text-sm file:mr-2 file:py-1.5 file:px-2 file:rounded-full file:border-0 file:text-xs file:bg-primary/10 file:text-primary hover:file:bg-primary/20" />
                 {fileName && <p className="text-xs text-muted-foreground">Uploaded: {fileName}</p>}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="shadow-lg">
+            <CardHeader>
+              <CardTitle className="flex items-center"><Filter className="mr-2 h-5 w-5 text-primary" /> Filter Historical Data</CardTitle>
+              <CardDescription>Select item and store to filter the historical charts. Forecast applies to the entire dataset.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label htmlFor="item-select">Item ID</Label>
+                <Select value={selectedItemId || "all"} onValueChange={(value) => setSelectedItemIdState(value === "all" ? undefined : value)}>
+                  <SelectTrigger id="item-select">
+                    <SelectValue placeholder="All Items" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Items</SelectItem>
+                    {availableItemIds.map(id => <SelectItem key={id} value={id}>{id}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label htmlFor="store-select">Store ID</Label>
+                <Select value={selectedStoreId || "all"} onValueChange={(value) => setSelectedStoreIdState(value === "all" ? undefined : value)}>
+                  <SelectTrigger id="store-select">
+                    <SelectValue placeholder="All Stores" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Stores</SelectItem>
+                    {availableStoreIds.map(id => <SelectItem key={id} value={id}>{id}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
             </CardContent>
           </Card>
@@ -378,7 +471,7 @@ const ScenarioSagePage: FC = () => {
               <CardHeader>
                 <CardTitle className="flex items-center"><FileText className="mr-2 h-6 w-6 text-primary" /> Scenario Analysis</CardTitle>
                  <CardDescription>Summary of the analyzed scenario.</CardDescription>
-              </CardHeader>
+              </Header>
               <CardContent className="space-y-2">
                 <div>
                   <h4 className="font-semibold">Overall Summary:</h4>
@@ -411,3 +504,4 @@ const ScenarioSagePage: FC = () => {
 };
 
 export default ScenarioSagePage;
+    
