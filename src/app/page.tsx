@@ -1,7 +1,7 @@
 
 "use client";
 
-import React, { useState, useEffect, type FC, type ChangeEvent } from 'react';
+import React, { useState, type FC, type ChangeEvent } from 'react';
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,8 +13,8 @@ import { UploadCloud, Lightbulb, LineChart, FileText, Loader2, CalendarDays, Dol
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 import Logo from "@/components/logo";
-import TimeSeriesChart, { type CombinedDataPoint } from "@/components/time-series-chart"; // CombinedDataPoint might need adjustment or TimeSeriesChart handles new structure
-import type { ChartConfig } from '@/components/ui/chart'; // Assuming ChartConfig is exported
+import TimeSeriesChart from "@/components/time-series-chart";
+import type { ChartConfig } from '@/components/ui/chart';
 import { useToast } from "@/hooks/use-toast";
 import { parseCsvForTimeSeries, extractUniqueColumnValues, type TimeSeriesDataPoint } from "@/lib/csv-parser";
 import { generateForecastAction, summarizeResultsAction } from "./actions";
@@ -33,11 +33,11 @@ interface GeneratedScenario {
 interface MultiScenarioChartDataPoint {
   date: string;
   historical?: number | null;
-  [scenarioId: string]: number | string | null | undefined; // string for date, number for values
+  [scenarioIdKey: string]: number | string | null | undefined; // string for date, number for values. scenarioIdKey will be e.g. "scenario1"
 }
 
 
-const ScenarioSagePage: FC = () => {
+const ScenarioSagePage: React.FC = () => {
   const { toast } = useToast();
 
   const [historicalDataCsv, setHistoricalDataCsvState] = React.useState<string | null>(null);
@@ -240,7 +240,7 @@ const ScenarioSagePage: FC = () => {
   }, [historicalPricePoints, generatedScenarios, selectedItemId, selectedStoreId, toast]);
 
 
-  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       setFileNameState(file.name);
@@ -320,16 +320,13 @@ const ScenarioSagePage: FC = () => {
       toast({ title: "Forecast Generation Failed", description: result.error, variant: "destructive" });
     } else {
       try {
-        // Check if forecast CSV is empty or malformed before trying to parse
-        const forecastDemandPoints = parseCsvForTimeSeries(result.forecastedData, 'demand');
-        const forecastPricePoints = parseCsvForTimeSeries(result.forecastedData, 'price');
-
-        if (forecastDemandPoints.length === 0 && forecastPricePoints.length === 0 && result.forecastedData.trim() !== "") {
-             toast({ title: "Warning: Forecast Data", description: "Forecast generated, but it seems empty or not in the expected CSV format (timestamp,price,demand). Charts may not update for this scenario.", variant: "destructive" });
+        // Basic check if forecast data seems present, detailed parsing happens in useEffect
+        if (!result.forecastedData || result.forecastedData.trim() === "") {
+             toast({ title: "Warning: Empty Forecast", description: "Forecast generated, but the output data is empty. Charts may not update.", variant: "destructive" });
         }
         
         const newGeneratedScenario: GeneratedScenario = {
-          id: new Date().toISOString() + Math.random().toString(), 
+          id: `scenario${generatedScenarios.length + 1}`, // CSS-friendly ID
           name: scenarioName,
           priceChangeDescription: priceChangeDescription,
           forecastLength: forecastLength,
